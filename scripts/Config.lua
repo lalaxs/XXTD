@@ -16,12 +16,15 @@ Config.TOTAL_SLOTS = Config.GRID_COLS * Config.DEPLOY_ROWS   -- 布政区格子�
 -- 品质阶梯
 -- ============================================================================
 Config.QUALITY = {
-    { id = 1, name = "凡器", color = {180, 180, 180, 255} },   -- 白色
-    { id = 2, name = "良品", color = {80, 210, 80, 255} },     -- 绿色
-    { id = 3, name = "上品", color = {60, 140, 255, 255} },    -- 蓝色
-    { id = 4, name = "灵宝", color = {170, 60, 255, 255} },    -- 紫色
-    { id = 5, name = "仙器", color = {255, 200, 0, 255} },     -- 金色
-    { id = 6, name = "神器", color = {255, 120, 0, 255} },     -- 橙色
+    { id = 1, name = "凡器", color = {200, 200, 200, 255} },   -- 白色
+    { id = 2, name = "良品", color = {100, 210, 120, 255} },   -- 绿色
+    { id = 3, name = "上品", color = {80, 160, 255, 255} },    -- 蓝色
+    { id = 4, name = "灵宝", color = {180, 100, 255, 255} },   -- 紫色
+    { id = 5, name = "圣器", color = {230, 70, 60, 255} },     -- 红色
+    { id = 6, name = "仙器", color = {255, 200, 50, 255} },    -- 金色
+    { id = 7, name = "神器", color = {180, 140, 40, 255} },    -- 暗金
+    { id = 8, name = "太古", color = {200, 130, 255, 255} },   -- 紫金
+    { id = 9, name = "鸿蒙", color = {255, 160, 200, 255} },   -- 粉霞
 }
 Config.MAX_QUALITY = #Config.QUALITY
 
@@ -34,34 +37,43 @@ Config.ITEM_TYPE = {
     PILL = 3,      -- 丹药
 }
 
--- 攻击法宝数值（按品质索引）
+-- 攻击法宝数值（按品质索引，9级）
 Config.ATTACK_ITEMS = {
-    { name = "飞剑", atk = 8,  crit = 0.05, icon = "⚔" },
-    { name = "灵剑", atk = 20, crit = 0.10, icon = "⚔" },
-    { name = "仙剑", atk = 45, crit = 0.15, icon = "⚔" },
-    { name = "神剑", atk = 100, crit = 0.25, icon = "⚔" },
-    { name = "天剑", atk = 220, crit = 0.35, icon = "⚔" },
-    { name = "混沌剑", atk = 500, crit = 0.50, icon = "⚔" },
+    { name = "飞剑", atk = 8,  crit = 0.05 },
+    { name = "灵剑", atk = 20, crit = 0.10 },
+    { name = "仙剑", atk = 45, crit = 0.15 },
+    { name = "神剑", atk = 100, crit = 0.25 },
+    { name = "天剑", atk = 220, crit = 0.35 },
+    { name = "圣剑", atk = 500, crit = 0.50 },
+    { name = "太古剑", atk = 1000, crit = 0.60 },
+    { name = "混沌剑", atk = 2000, crit = 0.70 },
+    { name = "鸿蒙剑", atk = 5000, crit = 0.85 },
 }
 
--- 防御法宝数值
+-- 防御法宝数值（符箓，9级）
 Config.DEFENSE_ITEMS = {
-    { name = "土盾", shield = 5,  slow = 0.1, icon = "🛡" },
-    { name = "灵盾", shield = 12, slow = 0.2, icon = "🛡" },
-    { name = "仙盾", shield = 30, slow = 0.3, icon = "🛡" },
-    { name = "神盾", shield = 60, slow = 0.5, icon = "🛡" },
-    { name = "天盾", shield = 120, slow = 0.7, icon = "🛡" },
-    { name = "混沌盾", shield = 250, slow = 1.0, icon = "🛡" },
+    { name = "镇灵符", shield = 5,  slow = 0.1 },
+    { name = "青木符", shield = 12, slow = 0.2 },
+    { name = "星辰符", shield = 30, slow = 0.3 },
+    { name = "紫霄符", shield = 60, slow = 0.5 },
+    { name = "烈焰符", shield = 120, slow = 0.7 },
+    { name = "鎏金符", shield = 250, slow = 0.8 },
+    { name = "太古符", shield = 500, slow = 0.9 },
+    { name = "紫金符", shield = 1000, slow = 0.95 },
+    { name = "鸿蒙符", shield = 2000, slow = 1.0 },
 }
 
--- 丹药数值
+-- 丹药数值（锦囊，9级）
 Config.PILL_ITEMS = {
-    { name = "回灵丹", buff = "heal",    value = 10, duration = 3, icon = "💊" },
-    { name = "聚气丹", buff = "atkUp",   value = 0.2, duration = 4, icon = "💊" },
-    { name = "护体丹", buff = "defUp",   value = 0.3, duration = 4, icon = "💊" },
-    { name = "破魔丹", buff = "critUp",  value = 0.25, duration = 5, icon = "💊" },
-    { name = "天元丹", buff = "allUp",   value = 0.3, duration = 5, icon = "💊" },
-    { name = "太乙丹", buff = "allUp",   value = 0.6, duration = 6, icon = "💊" },
+    { name = "回灵丹", buff = "heal",    value = 10, duration = 3 },
+    { name = "聚气丹", buff = "atkUp",   value = 0.2, duration = 4 },
+    { name = "护体丹", buff = "defUp",   value = 0.3, duration = 4 },
+    { name = "破魔丹", buff = "critUp",  value = 0.25, duration = 5 },
+    { name = "天元丹", buff = "allUp",   value = 0.3, duration = 5 },
+    { name = "太乙丹", buff = "allUp",   value = 0.6, duration = 6 },
+    { name = "太古丹", buff = "allUp",   value = 0.9, duration = 7 },
+    { name = "混沌丹", buff = "allUp",   value = 1.2, duration = 8 },
+    { name = "鸿蒙丹", buff = "allUp",   value = 1.8, duration = 10 },
 }
 
 -- ============================================================================
@@ -123,43 +135,49 @@ Config.CHEST = {
 }
 
 -- 缓冲区队列上限
-Config.BUFFER_MAX = 5
+Config.BUFFER_MAX = 10
 
 -- ============================================================================
 -- 分解返还修为
 -- ============================================================================
-Config.DECOMPOSE_EXP = { 2, 6, 15, 35, 80, 200 }
+Config.DECOMPOSE_EXP = { 2, 6, 15, 35, 80, 200, 500, 1200, 3000 }
 
 -- ============================================================================
--- 颜色主题（仙侠水墨风配色）
+-- 颜色主题（粗线条简约可爱 + 仙侠清新风）
 -- ============================================================================
 Config.COLORS = {
+    -- 天空背景
+    SKY_TOP = {173, 216, 240, 255},          -- 浅天蓝
+    SKY_BOTTOM = {210, 235, 220, 255},       -- 淡青绿
+
+    -- 草地/泥土
+    GRASS = {130, 195, 110, 255},            -- 明亮草绿
+    EARTH = {160, 120, 75, 255},             -- 泥土棕
+
     -- 战场网格
-    FIELD_BG = {235, 225, 200, 255},         -- 沙黄色战场底色
-    FIELD_GRID = {200, 185, 155, 120},       -- 网格线
-    FIELD_BORDER = {140, 120, 80, 200},      -- 战场边框
-    DEPLOY_BG = {180, 210, 140, 255},        -- 布政区底色（草绿）
-    DEPLOY_BORDER = {120, 160, 80, 200},     -- 布政区边框
+    FIELD_BG = {220, 240, 250, 40},          -- 极淡天蓝
+    FIELD_GRID = {180, 200, 210, 150},       -- 淡灰十字标
+    FIELD_BORDER = {100, 120, 140, 120},     -- 柔和边框
 
-    -- 格子
-    SLOT_EMPTY = {210, 200, 175, 180},       -- 空格子
-    SLOT_SELECTED = {255, 230, 150, 255},    -- 选中高亮
-    SLOT_BORDER = {160, 140, 100, 150},      -- 格子边框
+    -- 格子（粗圆角白底黑描边）
+    SLOT_BG = {255, 255, 255, 220},          -- 半透白底
+    SLOT_BORDER = {80, 80, 80, 200},         -- 粗黑描边
+    SLOT_SELECTED = {255, 240, 150, 255},    -- 选中金色
 
-    -- 怪物
-    MONSTER_MELEE = {180, 50, 50, 255},
-    MONSTER_RANGED = {80, 50, 180, 255},
-    MONSTER_HP_BG = {80, 60, 60, 200},
+    -- 怪物（可爱色调）
+    MONSTER_MELEE = {200, 80, 70, 220},      -- 暖红
+    MONSTER_RANGED = {100, 70, 180, 220},    -- 深紫
+    MONSTER_HP_BG = {50, 40, 40, 150},
 
-    -- UI
-    HP_BAR = {220, 50, 50, 255},
-    HP_BG = {80, 40, 40, 200},
-    EXP_BAR = {100, 180, 255, 255},
-    TEXT_PRIMARY = {50, 40, 30, 255},
-    TEXT_SECONDARY = {100, 85, 65, 200},
+    -- HUD
+    HUD_BG = {50, 50, 60, 200},             -- 深灰胶囊
+    HP_BAR = {230, 70, 60, 255},             -- 血条红
+    EXP_BAR = {160, 100, 220, 255},          -- 修为紫
+    TEXT_PRIMARY = {50, 45, 40, 255},
+    TEXT_SECONDARY = {100, 95, 90, 200},
     TEXT_WHITE = {255, 255, 255, 255},
-    ORB_GLOW = {100, 220, 160, 230},
-    BORDER_HIGHLIGHT = {255, 180, 50, 255},
+    TEXT_GOLD = {255, 210, 80, 255},          -- 境界金
+    BORDER_HIGHLIGHT = {255, 200, 50, 255},
 }
 
 return Config
