@@ -54,19 +54,42 @@ function ItemSystem.CreateItem(itemType, quality)
         local data = Config.ATTACK_ITEMS[quality]
         item.name = data.name
         item.atk = data.atk
-        item.crit = data.crit
+        item.crit = data.crit or 0
+        item.atkSpeed = data.atkSpeed or 1.0
+        item.defIgnore = data.defIgnore or 0
     elseif itemType == Config.ITEM_TYPE.DEFENSE then
         local data = Config.DEFENSE_ITEMS[quality]
         item.name = data.name
         item.shield = data.shield
-        item.slow = data.slow
+        item.damageReduction = data.damageReduction or 0
+        item.shareReduction = data.shareReduction or 0
+        item.globalReduction = data.globalReduction or 0
+        item.maxDurability = 5       -- 最多生效5回合
+        item.durability = 5          -- 当前剩余生效次数
+        -- 兼容旧代码中的 slow 字段（使用减伤值代替）
+        item.slow = data.damageReduction or 0
     elseif itemType == Config.ITEM_TYPE.PILL then
         local data = Config.PILL_ITEMS[quality]
         item.name = data.name
-        item.buff = data.buff
-        item.value = data.value
-        item.duration = data.duration
+        item.healPerSec = data.healPerSec or 0
+        item.duration = data.duration or 5
+        item.teamAtkBonus = data.teamAtkBonus or 0
+        item.teamAtkSpeedBonus = data.teamAtkSpeedBonus or 0
+        item.globalHealAura = data.globalHealAura or false
+        -- 兼容旧代码的 buff/value 字段
+        item.buff = "heal"
+        item.value = data.healPerSec or 0
         item.buffActive = true
+    elseif itemType == Config.ITEM_TYPE.TALISMAN then
+        local data = Config.TALISMAN_ITEMS[quality]
+        item.name = data.name
+        item.aoeDmg = data.aoeDmg or 0
+        item.aoeRange = data.aoeRange or 3
+        item.controlType = data.controlType or "none"
+        item.controlDuration = data.controlDuration or 0
+        -- 兼容旧攻击逻辑：符箓也用 atk 字段触发攻击
+        item.atk = data.aoeDmg
+        item.crit = 0
     end
 
     return item

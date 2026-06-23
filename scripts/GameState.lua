@@ -18,11 +18,15 @@ local GameState = {}
 function GameState.New()
     local state = {
         -- 玩家状态
-        hp = Config.PLAYER.BASE_HP,
-        maxHp = Config.PLAYER.BASE_HP,
+        hp = Config.REALMS[1].maxHp,
+        maxHp = Config.REALMS[1].maxHp,
         exp = Config.PLAYER.BASE_EXP,
         realmIndex = 1,  -- 当前境界索引
-        lastPillHp = Config.PLAYER.BASE_HP,  -- 丹药触发HP基准点
+        lastPillHp = Config.REALMS[1].maxHp,  -- 丹药触发HP基准点
+        
+        -- 天赋点（永久存档，轮回/重置不清空）
+        talentPoints = 0,
+        reincarnationCount = 0,
         
         -- 回合计数
         turn = 0,
@@ -96,6 +100,9 @@ function GameState.ExecuteTurn(state)
     
     print(string.format("[Turn %d] === 回合开始 ===", state.turn))
     
+    -- Step 0: 消耗布政区所有丹药（一次性回血后自动消失）
+    GameState.ConsumePills(state)
+    
     -- Step 1: 布政区道具生效
     GameState.ExecuteItems(state)
     
@@ -114,12 +121,16 @@ function GameState.ExecuteTurn(state)
     -- Step 5: 伤害结算
     GameState.ApplyDamage(state)
     
-    -- Step 6: 死亡判定
+    -- Step 6: 死亡判定（修为倒退机制）
     if state.hp <= 0 then
         state.hp = 0
-        state.isGameOver = true
-        print("[GameOver] 玩家气血归零，对局结束！")
-        return
+        local survived = RealmSystem.HandleDeath(state)
+        if not survived then
+            state.isGameOver = true
+            print("[GameOver] 练气期气血归零，对局结束！")
+            return
+        end
+        -- 复活成功，继续本回合
     end
     
     -- 波次进度：始终推进，除非本回合只击碎了宝箱（无怪物被攻击）
@@ -133,6 +144,12 @@ function GameState.ExecuteTurn(state)
     -- Step 7: 刷新资源和怪物
     GameState.SpawnChests(state)
     GameState.SpawnWave(state)
+    
+    -- 防止棋盘空场：如果场上无怪物也无宝箱，立即强制刷新一波
+    if #state.monsters == 0 and #state.chests == 0 then
+        state.waveTurnProgress = Config.WAVE_INTERVAL  -- 强制触发刷新条件
+        GameState.SpawnWave(state)
+    end
     
     -- Buff 持续回合递减
     GameState.TickBuffs(state)
@@ -248,19 +265,14 @@ function GameState.ExecuteItems(state)
                         monster.slowed = math.min(1.0, slowRate)
                     end
                 end
-                -- 给玩家少量回复（shield的20%）
-                local healVal = math.ceil(item.shield * realm.defMul * 0.2)
-                state.hp = math.min(state.maxHp, state.hp + healVal)
-                
-            elseif item.itemType == Config.ITEM_TYPE.PILL then
-                -- 丹药：应用/刷新Buff（已在放置时触发，这里tick持续效果）
-                if item.buffActive then
-                    -- 治疗类丹药每回合恢复
-                    if item.buff == "heal" then
-                        local healVal = math.floor(item.value * realm.pillMul)
-                        state.hp = math.min(state.maxHp, state.hp + healVal)
-                    end
+                -- 每回合消耗1次耐久，耗尽后消失
+                item.durability = (item.durability or 5) - 1
+                if item.durability <= 0 then
+                    state.slots[slotIdx] = nil
+                    print(string.format("  [Defense] %s 耐久耗尽，消失!", item.name))
                 end
+                
+            -- 丹药不在此处处理（已在 ConsumePills 中一次性消耗）
             end
         end
     end
@@ -396,6 +408,44 @@ end
 
 function GameState.DecomposeItem(state, slotIdx)
     return ItemSystem.DecomposeItem(state, slotIdx)
+end
+
+-- ============================================================================
+-- Step 0: 消耗丹药（一次性回血，回血可超出上限，消耗后消失）
+-- ============================================================================
+function GameState.ConsumePills(state)
+    -- 前提条件：当前血量低于最大血量40%时才自动使用丹药
+    if state.hp >= state.maxHp * 0.4 then
+        return
+    end
+
+    local realm = Config.REALMS[state.realmIndex]
+    
+    for i = 1, Config.TOTAL_SLOTS do
+        local item = state.slots[i]
+        if item and item.itemType == Config.ITEM_TYPE.PILL then
+            -- 计算总回血量 = healPerSec × duration（一次性全额）
+            local totalHeal = (item.healPerSec or item.value or 0) * (item.duration or 5)
+            local finalHeal = math.floor(totalHeal * realm.pillMul)
+            
+            -- 回血可以超出最大血量上限
+            state.hp = state.hp + finalHeal
+            
+            -- 记录消耗信息（用于 UI 弹 Toast）
+            if not state.pillConsumeMessages then
+                state.pillConsumeMessages = {}
+            end
+            table.insert(state.pillConsumeMessages, {
+                name = item.name,
+                heal = finalHeal,
+            })
+            
+            -- 从布政区移除（自动分解消失）
+            state.slots[i] = nil
+            
+            print(string.format("  [Pill] 使用 %s，恢复 %d 血", item.name, finalHeal))
+        end
+    end
 end
 
 return GameState

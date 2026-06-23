@@ -230,11 +230,15 @@ function UIController:ShowItemInfo(item)
     local title = string.format("%s [%s]", item.name, qName)
     local desc = ""
     if item.itemType == Config.ITEM_TYPE.ATTACK then
-        desc = string.format("ATK: %d  暴击: %d%%\n攻击同列\n最前排敌人", item.atk, math.floor(item.crit * 100))
+        local defIgnoreStr = (item.defIgnore or 0) > 0 and string.format("\n无视%d%%防御", math.floor(item.defIgnore * 100)) or ""
+        desc = string.format("ATK: %d  攻速: %.1fs%s\n攻击同列最前排敌人", item.atk, item.atkSpeed or 1.0, defIgnoreStr)
     elseif item.itemType == Config.ITEM_TYPE.DEFENSE then
-        desc = string.format("护盾: %d  减速: %d%%\n减速同列敌人\n并回复气血", item.shield, math.floor(item.slow * 100))
+        local dur = item.durability or 0
+        desc = string.format("护盾: %d  减伤: %d%%\n只生效五回合 (剩余%d)", item.shield, math.floor((item.damageReduction or 0) * 100), dur)
     elseif item.itemType == Config.ITEM_TYPE.PILL then
-        desc = string.format("效果: %s\n持续: %d回合\n放置后持续生效", item.buff, item.duration)
+        desc = string.format("回血: %d/秒  持续%d秒\n放置后持续生效", item.healPerSec or item.value or 0, item.duration)
+    elseif item.itemType == Config.ITEM_TYPE.TALISMAN then
+        desc = string.format("范围伤害: %d\n范围: %d格", item.aoeDmg or 0, item.aoeRange or 3)
     end
 
     self.itemInfoIcon.props.backgroundImage = Assets.GetItemIcon(item)
@@ -298,6 +302,16 @@ function UIController:UpdateAll(state)
 end
 
 function UIController:ShowDropMessages(state)
+    -- 丹药消耗提示
+    if state.pillConsumeMessages and #state.pillConsumeMessages > 0 then
+        for _, info in ipairs(state.pillConsumeMessages) do
+            local msg = string.format("您已自动使用了%s，恢复%d血", info.name, info.heal)
+            UI.Toast.Show(msg, { duration = 2.5, variant = "info", position = "top" })
+        end
+        state.pillConsumeMessages = {}
+    end
+
+    -- 道具掉落提示
     if not state.dropMessages or #state.dropMessages == 0 then return end
     local msg = "获得: " .. table.concat(state.dropMessages, "、")
     UI.Toast.Show(msg, { duration = 2, variant = "success", position = "top" })

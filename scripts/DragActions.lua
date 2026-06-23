@@ -95,9 +95,6 @@ function DragActions.ApplyDrop(state, sourceSlot, targetSlot)
         end
         DragActions.SetItemToSlot(state, toCat, toIdx, newItem)
         DragActions.SetItemToSlot(state, fromCat, fromIdx, nil)
-        if newItem.itemType == Config.ITEM_TYPE.PILL then
-            BuffSystem.AddBuff(state, newItem.buff, newItem.value, newItem.duration)
-        end
         return {
             changed = true,
             merged = true,

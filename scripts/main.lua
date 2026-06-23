@@ -62,18 +62,24 @@ StartNewGame = function()
     state_.slots[5] = GameState.CreateItem(Config.ITEM_TYPE.DEFENSE, 1)
 
     state_.waveCount = 1
+    local t = Config.MELEE_TEMPLATES[1]
     table.insert(state_.monsters, {
         monsterType = Config.MONSTER_TYPE.MELEE,
-        name = "小妖",
-        hp = 30,
-        maxHp = 30,
-        atk = 15,
-        exp = 5,
-        dropChance = 0.3,
+        name = t.name,
+        quality = t.quality or 1,
+        hp = t.hp,
+        maxHp = t.hp,
+        atk = t.atk,
+        exp = t.exp,
+        dropChance = t.dropChance,
+        skill = t.skill,
         col = 3,
         row = 1,
         charging = false,
         chargeTimer = 0,
+        rowsWalked = 0,
+        skillTriggered = false,
+        shieldAmount = 0,
     })
 end
 
@@ -143,7 +149,17 @@ UpdateFieldPanel = function()
 end
 
 RestartGame = function()
+    -- 保留天赋点（永久存档）
+    local savedTalent = state_ and state_.talentPoints or 0
+    local savedReincarnation = state_ and state_.reincarnationCount or 0
     StartNewGame()
+    state_.talentPoints = savedTalent
+    state_.reincarnationCount = savedReincarnation
+    -- 天赋点影响初始血量
+    local RealmSystem = require("RealmSystem")
+    state_.maxHp = RealmSystem.GetMaxHp(state_)
+    state_.hp = state_.maxHp
+    state_.lastPillHp = state_.maxHp
     if uiController_ then
         uiController_:HideGameOver()
     end

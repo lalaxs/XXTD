@@ -56,9 +56,11 @@ function Assets.GetItemIcon(item)
     if not item then return nil end
     local quality = item.quality or 1
     if item.itemType == Config.ITEM_TYPE.DEFENSE then
-        return Assets.FULU_ICONS[quality] or Assets.FULU_ICONS[1]
+        return Assets.JINNANG_ICONS[quality] or Assets.JINNANG_ICONS[1]
     elseif item.itemType == Config.ITEM_TYPE.PILL then
         return Assets.DANYAO_ICONS[quality] or Assets.DANYAO_ICONS[1]
+    elseif item.itemType == Config.ITEM_TYPE.TALISMAN then
+        return Assets.FULU_ICONS[quality] or Assets.FULU_ICONS[1]
     end
     return Assets.JIAN_ICONS[quality] or Assets.JIAN_ICONS[1]
 end
