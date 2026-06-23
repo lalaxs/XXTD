@@ -7,6 +7,8 @@ local GameState = require("GameState")
 local Effects = require("Effects")
 local DragActions = require("DragActions")
 local UIController = require("UIController")
+-- VectorIcons 和 FieldView 的图标绘制已移到 UI 层
+-- NanoVG 只负责特效
 
 ---@type table|nil
 local state_ = nil
@@ -177,9 +179,11 @@ function HandleUpdate(eventType, eventData)
 
     if not firstFrameDone_ then
         firstFrameDone_ = true
-        UpdateFieldPanel()
+        UpdateAllUI()
     end
 end
+
+-- 图标绘制已全部移入 UI 层（FieldView + UIController.ApplyItemSlotVisual）
 
 function HandleNanoVGRender(eventType, eventData)
     if not vg_ or not uiController_ then return end
@@ -189,9 +193,10 @@ function HandleNanoVGRender(eventType, eventData)
     local dpr = graphics:GetDPR()
     local lw = w / dpr
     local lh = h / dpr
-    local deploySlots, storageSlots, fieldPanel = uiController_:GetRenderRefs()
+    local layoutSnapshot = uiController_:GetEffectLayoutSnapshot()
 
     nvgBeginFrame(vg_, lw, lh, dpr)
-    Effects.Render(vg_, state_, deploySlots, storageSlots, fieldPanel, lw, lh)
+    -- 只绘制特效（图标已在 UI 层渲染）
+    Effects.Render(vg_, state_, layoutSnapshot, lw, lh)
     nvgEndFrame(vg_)
 end

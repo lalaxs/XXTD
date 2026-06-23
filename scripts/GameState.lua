@@ -110,16 +110,16 @@ function GameState.ExecuteTurn(state)
     GameState.ProcessKillsAndDrops(state)
     
     -- Step 2.5: 宝箱移动
-    GameState.MoveChests(state)
+    ChestSystem.MoveChests(state)
     
     -- Step 3: 怪物移动
-    GameState.MoveMonsters(state)
+    MonsterSystem.MoveMonsters(state)
     
     -- Step 4: 怪物攻击
-    GameState.MonsterAttack(state)
+    MonsterSystem.MonsterAttack(state)
     
     -- Step 5: 伤害结算
-    GameState.ApplyDamage(state)
+    MonsterSystem.ApplyDamage(state)
     
     -- Step 6: 死亡判定（修为倒退机制）
     if state.hp <= 0 then
@@ -142,17 +142,17 @@ function GameState.ExecuteTurn(state)
     state._chestKilledThisTurn = false
     
     -- Step 7: 刷新资源和怪物
-    GameState.SpawnChests(state)
-    GameState.SpawnWave(state)
+    ChestSystem.SpawnChests(state)
+    WaveSystem.SpawnWave(state)
     
     -- 防止棋盘空场：如果场上无怪物也无宝箱，立即强制刷新一波
     if #state.monsters == 0 and #state.chests == 0 then
         state.waveTurnProgress = Config.WAVE_INTERVAL  -- 强制触发刷新条件
-        GameState.SpawnWave(state)
+        WaveSystem.SpawnWave(state)
     end
     
     -- Buff 持续回合递减
-    GameState.TickBuffs(state)
+    BuffSystem.TickBuffs(state)
     
     print(string.format("[Turn %d] === 回合结束 === HP: %d/%d", state.turn, state.hp, state.maxHp))
 end
@@ -176,8 +176,8 @@ function GameState.ExecuteItems(state)
                 if math.random() < critChance then
                     finalDmg = finalDmg * 2
                 end
-                local atkBuff = GameState.GetBuffValue(state, "atkUp")
-                local allBuff = GameState.GetBuffValue(state, "allUp")
+                local atkBuff = BuffSystem.GetBuffValue(state, "atkUp")
+                local allBuff = BuffSystem.GetBuffValue(state, "allUp")
                 finalDmg = math.floor(finalDmg * (1 + atkBuff + allBuff))
                 
                 -- 找同列最前排目标（row最大，怪物或宝箱）
@@ -238,7 +238,7 @@ function GameState.ExecuteItems(state)
                     else
                         itemType = Config.ITEM_TYPE.DEFENSE
                     end
-                    local newItem = GameState.CreateItem(itemType, math.min(chestQ, Config.MAX_QUALITY))
+                    local newItem = ItemSystem.CreateItem(itemType, math.min(chestQ, Config.MAX_QUALITY))
                     -- 缓冲区只保留1个，保留更高品质
                     local existing = state.dropQueue[1]
                     if not existing then
@@ -247,7 +247,7 @@ function GameState.ExecuteItems(state)
                         state.dropQueue[1] = newItem  -- 新物品品质更高，替换
                     end
                     table.insert(state.dropMessages, newItem.name)
-                    GameState.AddExp(state, 3)
+                    RealmSystem.AddExp(state, 3)
                 else
                     table.insert(state.lastAttackEvents, {
                         slotIdx = slotIdx,
@@ -258,11 +258,21 @@ function GameState.ExecuteItems(state)
                 end
                 
             elseif item.itemType == Config.ITEM_TYPE.DEFENSE then
-                -- 防御法宝：给同列怪物施加减速
-                local slowRate = item.slow * realm.defMul
-                for _, monster in ipairs(state.monsters) do
-                    if monster.col == col and monster.hp > 0 then
-                        monster.slowed = math.min(1.0, slowRate)
+                -- 防御法宝：提供本回合全局减伤，若配置 slowRate 则额外减速同列怪物
+                local globalReduction = item.globalReduction or 0
+                if globalReduction <= 0 then
+                    globalReduction = item.damageReduction or 0
+                end
+                globalReduction = globalReduction * realm.defMul
+                if globalReduction > 0 then
+                    BuffSystem.AddBuff(state, "defUp", globalReduction, 1)
+                end
+                local slowRate = (item.slowRate or 0) * realm.defMul
+                if slowRate > 0 then
+                    for _, monster in ipairs(state.monsters) do
+                        if monster.col == col and monster.hp > 0 then
+                            monster.slowed = math.min(1.0, slowRate)
+                        end
                     end
                 end
                 -- 每回合消耗1次耐久，耗尽后消失
@@ -282,14 +292,13 @@ end
 -- Step 2: 处理击杀和掉落
 -- ============================================================================
 function GameState.ProcessKillsAndDrops(state)
-    local realm = Config.REALMS[state.realmIndex]
     local toRemove = {}
     
     -- 处理被击杀的怪物（只给修为，不掉落物品）
     for i, monster in ipairs(state.monsters) do
         if monster.hp <= 0 then
             table.insert(toRemove, i)
-            GameState.AddExp(state, monster.exp)
+            RealmSystem.AddExp(state, monster.exp)
             state.score = state.score + monster.exp
             print(string.format("  [Kill] %s 被击杀! +%d修为", monster.name, monster.exp))
         end
@@ -312,102 +321,10 @@ function GameState.ProcessKillsAndDrops(state)
 end
 
 -- ============================================================================
--- Step 2.5: 宝箱移动（每回合下移一格，超出行进区则消失）
+-- 道具创建对外接口
 -- ============================================================================
-function GameState.MoveChests(state)
-    return ChestSystem.MoveChests(state)
-end
-
--- ============================================================================
--- Step 3: 怪物移动
--- ============================================================================
-function GameState.MoveMonsters(state)
-    return MonsterSystem.MoveMonsters(state)
-end
-
--- ============================================================================
--- Step 4: 怪物攻击
--- ============================================================================
-function GameState.MonsterAttack(state)
-    return MonsterSystem.MonsterAttack(state)
-end
-
--- ============================================================================
--- Step 5: 伤害结算
--- ============================================================================
-function GameState.ApplyDamage(state)
-    return MonsterSystem.ApplyDamage(state)
-end
-
--- ============================================================================
--- Step 7: 刷新资源和怪物
--- ============================================================================
-function GameState.SpawnChests(state)
-    return ChestSystem.SpawnChests(state)
-end
-
-function GameState.SpawnWave(state)
-    return WaveSystem.SpawnWave(state)
-end
-
--- ============================================================================
--- Buff 系统兼容包装
--- ============================================================================
-function GameState.TickBuffs(state)
-    return BuffSystem.TickBuffs(state)
-end
-
-function GameState.GetBuffValue(state, buffType)
-    return BuffSystem.GetBuffValue(state, buffType)
-end
-
-function GameState.AddBuff(state, buffType, value, duration)
-    return BuffSystem.AddBuff(state, buffType, value, duration)
-end
-
--- ============================================================================
--- 修为和境界兼容包装
--- ============================================================================
-function GameState.AddExp(state, amount)
-    return RealmSystem.AddExp(state, amount)
-end
-
-function GameState.CheckRealmUp(state)
-    return RealmSystem.CheckRealmUp(state)
-end
-
--- ============================================================================
--- 道具生成兼容包装
--- ============================================================================
-function GameState.SpawnRandomItem(state)
-    return ItemSystem.SpawnRandomItem(state)
-end
-
-function GameState.GenerateRandomItem(state)
-    return ItemSystem.GenerateRandomItem(state)
-end
-
 function GameState.CreateItem(itemType, quality)
     return ItemSystem.CreateItem(itemType, quality)
-end
-
--- ============================================================================
--- 格子操作兼容包装
--- ============================================================================
-function GameState.FindEmptySlot(state)
-    return BoardSystem.FindEmptySlot(state)
-end
-
-function GameState.SwapSlots(state, from, to)
-    return BoardSystem.SwapSlots(state, from, to)
-end
-
-function GameState.TryMerge(state, fromSlot, toSlot)
-    return ItemSystem.TryMerge(state, fromSlot, toSlot)
-end
-
-function GameState.DecomposeItem(state, slotIdx)
-    return ItemSystem.DecomposeItem(state, slotIdx)
 end
 
 -- ============================================================================

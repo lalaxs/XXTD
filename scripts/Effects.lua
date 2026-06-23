@@ -10,9 +10,7 @@ local slotLayouts_ = {}
 
 local vg_ = nil
 local state_ = nil
-local fieldPanel_ = nil
-local deploySlots_ = nil
-local storageSlots_ = nil
+local layoutSnapshot_ = nil
 
 function Effects.Reset()
     attackEffects_ = {}
@@ -63,8 +61,7 @@ end
 -- 怪物行进区棋盘格子
 -- ============================================================================
 local function DrawFieldGrid()
-    if not fieldPanel_ then return end
-    local layout = fieldPanel_:GetAbsoluteLayout()
+    local layout = layoutSnapshot_ and layoutSnapshot_.field or nil
     if not layout or layout.w == 0 or layout.h == 0 then return end
 
     -- 棋盘区域限定在行进区面板内
@@ -142,7 +139,6 @@ end
 -- ============================================================================
 local function DrawMergeEffects()
     local remaining = {}
-    -- 品质颜色映射
     local qColorR = {200, 100, 80, 180, 230, 255, 180, 200, 255}
     local qColorG = {200, 210, 160, 100, 70, 200, 140, 130, 160}
     local qColorB = {200, 120, 255, 255, 60, 50, 40, 255, 200}
@@ -154,57 +150,50 @@ local function DrawMergeEffects()
         if progress < 1.0 then
             table.insert(remaining, eff)
 
-            -- 获取格子位置
-            local slot = nil
+            local sl = nil
             if eff.category == "deploy" then
-                slot = deploySlots_[eff.idx]
+                sl = layoutSnapshot_ and layoutSnapshot_.deploySlots and layoutSnapshot_.deploySlots[eff.idx] or nil
             elseif eff.category == "storage" then
-                slot = storageSlots_[1]
+                sl = layoutSnapshot_ and layoutSnapshot_.storageSlots and layoutSnapshot_.storageSlots[1] or nil
             end
 
-            if slot then
-                local sl = slot:GetAbsoluteLayout()
-                if sl and sl.w > 0 then
-                    local cx = sl.x + sl.w / 2
-                    local cy = sl.y + sl.h / 2
-                    local q = math.min(9, math.max(1, eff.quality))
-                    local cr = qColorR[q]
-                    local cg = qColorG[q]
-                    local cb = qColorB[q]
+            if sl and sl.w > 0 then
+                local cx = sl.x + sl.w / 2
+                local cy = sl.y + sl.h / 2
+                local q = math.min(9, math.max(1, eff.quality))
+                local cr = qColorR[q]
+                local cg = qColorG[q]
+                local cb = qColorB[q]
 
-                    -- 环形光浪扩散
-                    local ringRadius = sl.w * 0.3 + sl.w * 0.8 * progress
-                    local ringAlpha = math.floor(220 * (1.0 - progress))
-                    nvgBeginPath(vg_)
-                    nvgCircle(vg_, cx, cy, ringRadius)
-                    nvgStrokeColor(vg_, nvgRGBA(cr, cg, cb, ringAlpha))
-                    nvgStrokeWidth(vg_, 3 * (1.0 - progress * 0.5))
-                    nvgStroke(vg_)
+                local ringRadius = sl.w * 0.3 + sl.w * 0.8 * progress
+                local ringAlpha = math.floor(220 * (1.0 - progress))
+                nvgBeginPath(vg_)
+                nvgCircle(vg_, cx, cy, ringRadius)
+                nvgStrokeColor(vg_, nvgRGBA(cr, cg, cb, ringAlpha))
+                nvgStrokeWidth(vg_, 3 * (1.0 - progress * 0.5))
+                nvgStroke(vg_)
 
-                    -- 外层柔和光晕
-                    local glowR = ringRadius * 1.3
-                    local glowPaint = nvgRadialGradient(vg_, cx, cy, ringRadius * 0.5, glowR,
-                        nvgRGBA(cr, cg, cb, math.floor(60 * (1.0 - progress))),
-                        nvgRGBA(cr, cg, cb, 0))
+                local glowR = ringRadius * 1.3
+                local glowPaint = nvgRadialGradient(vg_, cx, cy, ringRadius * 0.5, glowR,
+                    nvgRGBA(cr, cg, cb, math.floor(60 * (1.0 - progress))),
+                    nvgRGBA(cr, cg, cb, 0))
+                nvgBeginPath(vg_)
+                nvgCircle(vg_, cx, cy, glowR)
+                nvgFillPaint(vg_, glowPaint)
+                nvgFill(vg_)
+
+                local particleCount = 4 + q * 2
+                for particle = 1, particleCount do
+                    local angle = (particle / particleCount) * math.pi * 2 + effectTime_ * 2
+                    local dist = sl.w * 0.2 + sl.w * progress * 0.8
+                    local px = cx + math.cos(angle) * dist
+                    local py = cy + math.sin(angle) * dist
+                    local pAlpha = math.floor(200 * (1.0 - progress * progress))
+                    local pSize = (2 + q * 0.3) * (1.0 - progress * 0.7)
                     nvgBeginPath(vg_)
-                    nvgCircle(vg_, cx, cy, glowR)
-                    nvgFillPaint(vg_, glowPaint)
+                    nvgCircle(vg_, px, py, pSize)
+                    nvgFillColor(vg_, nvgRGBA(cr, cg, cb, pAlpha))
                     nvgFill(vg_)
-
-                    -- 粒子爆发（品质越高粒子越多）
-                    local particleCount = 4 + q * 2
-                    for p = 1, particleCount do
-                        local angle = (p / particleCount) * math.pi * 2 + effectTime_ * 2
-                        local dist = sl.w * 0.2 + sl.w * progress * 0.8
-                        local px = cx + math.cos(angle) * dist
-                        local py = cy + math.sin(angle) * dist
-                        local pAlpha = math.floor(200 * (1.0 - progress * progress))
-                        local pSize = (2 + q * 0.3) * (1.0 - progress * 0.7)
-                        nvgBeginPath(vg_)
-                        nvgCircle(vg_, px, py, pSize)
-                        nvgFillColor(vg_, nvgRGBA(cr, cg, cb, pAlpha))
-                        nvgFill(vg_)
-                    end
                 end
             end
         end
@@ -218,13 +207,12 @@ end
 -- 缓存slot布局位置（避免拖拽期间布局失效）
 
 local function CacheSlotLayouts()
+    local deployLayouts = layoutSnapshot_ and layoutSnapshot_.deploySlots or nil
+    if not deployLayouts then return end
     for i = 1, Config.TOTAL_SLOTS do
-        local slot = deploySlots_[i]
-        if slot then
-            local layout = slot:GetAbsoluteLayout()
-            if layout and layout.w > 0 then
-                slotLayouts_[i] = {x = layout.x, y = layout.y, w = layout.w, h = layout.h}
-            end
+        local layout = deployLayouts[i]
+        if layout and layout.w > 0 then
+            slotLayouts_[i] = layout
         end
     end
 end
@@ -496,7 +484,7 @@ end
 -- 攻击光波特效
 -- ============================================================================
 local function GetFieldMetrics()
-    local fieldLayout = fieldPanel_ and fieldPanel_:GetAbsoluteLayout() or nil
+    local fieldLayout = layoutSnapshot_ and layoutSnapshot_.field or nil
     if not fieldLayout or fieldLayout.w <= 0 or fieldLayout.h <= 0 then return nil end
     return {
         x = fieldLayout.x,
@@ -578,31 +566,28 @@ local function DrawAttackWaveEffects(screenW, screenH)
                 local ey = metrics.y + metrics.h + 18
                 DrawBeam(sx, sy, ex, ey, progress, {255, 90, 180})
             else
-                local slot = deploySlots_[eff.slotIdx]
-                if slot then
-                    local slotLayout = slot:GetAbsoluteLayout()
-                    if slotLayout and slotLayout.w > 0 then
-                        local sx = slotLayout.x + slotLayout.w / 2
-                        local sy = slotLayout.y + slotLayout.h / 2
-                        local ex, ey
-                        if eff.targetType == "none" then
-                            ex = metrics.x + (eff.col - 0.5) * metrics.cellW
-                            ey = metrics.y + metrics.cellH * 0.5
-                        else
-                            ex, ey = FieldCellCenter(metrics, eff.col, eff.targetRow)
-                        end
-
-                        local weaponGlowAlpha = math.floor(150 * (1.0 - progress))
-                        local weaponPaint = nvgRadialGradient(vg_, sx, sy, 2, slotLayout.w * 0.55,
-                            nvgRGBA(120, 220, 255, weaponGlowAlpha),
-                            nvgRGBA(120, 220, 255, 0))
-                        nvgBeginPath(vg_)
-                        nvgCircle(vg_, sx, sy, slotLayout.w * 0.55)
-                        nvgFillPaint(vg_, weaponPaint)
-                        nvgFill(vg_)
-
-                        DrawBeam(sx, sy, ex, ey, progress, {90, 220, 255})
+                local slotLayout = layoutSnapshot_ and layoutSnapshot_.deploySlots and layoutSnapshot_.deploySlots[eff.slotIdx] or nil
+                if slotLayout and slotLayout.w > 0 then
+                    local sx = slotLayout.x + slotLayout.w / 2
+                    local sy = slotLayout.y + slotLayout.h / 2
+                    local ex, ey
+                    if eff.targetType == "none" then
+                        ex = metrics.x + (eff.col - 0.5) * metrics.cellW
+                        ey = metrics.y + metrics.cellH * 0.5
+                    else
+                        ex, ey = FieldCellCenter(metrics, eff.col, eff.targetRow)
                     end
+
+                    local weaponGlowAlpha = math.floor(150 * (1.0 - progress))
+                    local weaponPaint = nvgRadialGradient(vg_, sx, sy, 2, slotLayout.w * 0.55,
+                        nvgRGBA(120, 220, 255, weaponGlowAlpha),
+                        nvgRGBA(120, 220, 255, 0))
+                    nvgBeginPath(vg_)
+                    nvgCircle(vg_, sx, sy, slotLayout.w * 0.55)
+                    nvgFillPaint(vg_, weaponPaint)
+                    nvgFill(vg_)
+
+                    DrawBeam(sx, sy, ex, ey, progress, {90, 220, 255})
                 end
             end
         end
@@ -610,14 +595,11 @@ local function DrawAttackWaveEffects(screenW, screenH)
     attackEffects_ = remaining
 end
 
-function Effects.Render(vg, state, deploySlots, storageSlots, fieldPanel, screenW, screenH)
+function Effects.Render(vg, state, layoutSnapshot, screenW, screenH)
     vg_ = vg
     state_ = state
-    deploySlots_ = deploySlots
-    storageSlots_ = storageSlots
-    fieldPanel_ = fieldPanel
+    layoutSnapshot_ = layoutSnapshot
 
-    DrawQualityBorderEffects()
     DrawMergeEffects()
     DrawAttackWaveEffects(screenW, screenH)
 end

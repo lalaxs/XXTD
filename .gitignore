@@ -8,11 +8,6 @@ logs/.nfs*
 .sce/logs/
 .sce/build/build_steps/__pycache__/
 
-# Generated project/runtime configuration
-.project/
-.agent/
-_uploads/
-
 # Temp & swap files
 .tmp/
 *.crswap

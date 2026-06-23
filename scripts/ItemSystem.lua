@@ -5,6 +5,10 @@ local BoardSystem = require("BoardSystem")
 
 local ItemSystem = {}
 
+local function ClampQuality(quality)
+    return math.min(Config.MAX_QUALITY, math.max(1, quality or 1))
+end
+
 function ItemSystem.SpawnRandomItem(state)
     if state.onItemDrop then
         state.onItemDrop(state)
@@ -45,51 +49,51 @@ function ItemSystem.GenerateRandomItem(state)
 end
 
 function ItemSystem.CreateItem(itemType, quality)
+    quality = ClampQuality(quality)
     local item = {
         itemType = itemType,
         quality = quality,
     }
 
     if itemType == Config.ITEM_TYPE.ATTACK then
-        local data = Config.ATTACK_ITEMS[quality]
+        local data = assert(Config.ATTACK_ITEMS[quality], "Missing attack item config")
         item.name = data.name
         item.atk = data.atk
         item.crit = data.crit or 0
         item.atkSpeed = data.atkSpeed or 1.0
         item.defIgnore = data.defIgnore or 0
     elseif itemType == Config.ITEM_TYPE.DEFENSE then
-        local data = Config.DEFENSE_ITEMS[quality]
+        local data = assert(Config.DEFENSE_ITEMS[quality], "Missing defense item config")
         item.name = data.name
         item.shield = data.shield
         item.damageReduction = data.damageReduction or 0
         item.shareReduction = data.shareReduction or 0
         item.globalReduction = data.globalReduction or 0
-        item.maxDurability = 5       -- 最多生效5回合
-        item.durability = 5          -- 当前剩余生效次数
-        -- 兼容旧代码中的 slow 字段（使用减伤值代替）
-        item.slow = data.damageReduction or 0
+        item.slowRate = data.slowRate or 0
+        item.maxDurability = 5
+        item.durability = 5
     elseif itemType == Config.ITEM_TYPE.PILL then
-        local data = Config.PILL_ITEMS[quality]
+        local data = assert(Config.PILL_ITEMS[quality], "Missing pill item config")
         item.name = data.name
         item.healPerSec = data.healPerSec or 0
         item.duration = data.duration or 5
         item.teamAtkBonus = data.teamAtkBonus or 0
         item.teamAtkSpeedBonus = data.teamAtkSpeedBonus or 0
         item.globalHealAura = data.globalHealAura or false
-        -- 兼容旧代码的 buff/value 字段
         item.buff = "heal"
         item.value = data.healPerSec or 0
         item.buffActive = true
     elseif itemType == Config.ITEM_TYPE.TALISMAN then
-        local data = Config.TALISMAN_ITEMS[quality]
+        local data = assert(Config.TALISMAN_ITEMS[quality], "Missing talisman item config")
         item.name = data.name
         item.aoeDmg = data.aoeDmg or 0
         item.aoeRange = data.aoeRange or 3
         item.controlType = data.controlType or "none"
         item.controlDuration = data.controlDuration or 0
-        -- 兼容旧攻击逻辑：符箓也用 atk 字段触发攻击
         item.atk = data.aoeDmg
         item.crit = 0
+    else
+        error("Unknown item type: " .. tostring(itemType))
     end
 
     return item

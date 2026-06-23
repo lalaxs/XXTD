@@ -1,3 +1,6 @@
+-- Views.lua
+-- 仙侠合成塔防 - UI 视图组件（牛皮纸古卷风格）
+
 local UI = require("urhox-libs/UI")
 local Config = require("Config")
 local STYLE = require("Theme")
@@ -14,7 +17,7 @@ function Views.CreateTopHUD()
         fontWeight = "bold",
     }
     refs.turnLabel = UI.Label {
-        text = "波 1",
+        text = "第1波",
         fontSize = 13,
         fontColor = STYLE.TEXT_WHITE,
     }
@@ -28,31 +31,34 @@ function Views.CreateTopHUD()
         value = 1.0,
         width = "100%",
         height = 12,
-        backgroundColor = {40, 30, 30, 150},
-        fillColor = "#E64640",
+        backgroundColor = {40, 30, 20, 180},
+        fillColor = "#C83728",
         borderRadius = 6,
         borderWidth = 2,
-        borderColor = {60, 50, 50, 200},
+        borderColor = STYLE.HUD_BORDER,
         transition = "value 0.3s easeOut",
     }
     refs.expBar = UI.ProgressBar {
         value = 0,
         width = "100%",
         height = 8,
-        backgroundColor = {40, 30, 50, 150},
-        fillGradient = {direction = "to-right", from = "#9060DD", to = "#C080FF"},
+        backgroundColor = {40, 28, 50, 180},
+        fillGradient = {direction = "to-right", from = "#7040B0", to = "#A060E0"},
         borderRadius = 4,
         borderWidth = 1.5,
-        borderColor = {80, 60, 100, 180},
+        borderColor = {100, 70, 45, 180},
         transition = "value 0.3s easeOut",
     }
 
     local panel = UI.Panel {
         width = "100%",
-        paddingHorizontal = 12,
+        paddingHorizontal = 10,
         paddingTop = 8,
-        paddingBottom = 6,
-        gap = 5,
+        paddingBottom = 10,
+        gap = 6,
+        backgroundColor = STYLE.HUD_BG,
+        borderBottomWidth = 5,
+        borderBottomColor = STYLE.HUD_BORDER,
         children = {
             UI.Panel {
                 width = "100%",
@@ -60,45 +66,48 @@ function Views.CreateTopHUD()
                 justifyContent = "space-between",
                 alignItems = "center",
                 children = {
+                    -- 境界标签
                     UI.Panel {
                         flexDirection = "row",
                         alignItems = "center",
-                        gap = 6,
-                        paddingHorizontal = 12,
-                        paddingVertical = 5,
-                        backgroundColor = STYLE.HUD_BG,
+                        gap = 5,
+                        paddingHorizontal = 10,
+                        paddingVertical = 4,
+                        backgroundColor = {80, 58, 35, 200},
                         borderRadius = STYLE.HUD_RADIUS,
-                        borderWidth = 2.5,
-                        borderColor = {80, 75, 70, 200},
+                        borderWidth = 2,
+                        borderColor = STYLE.HUD_BORDER,
                         children = {
-                            UI.Label { text = "☯", fontSize = 14, fontColor = STYLE.TEXT_GOLD },
+                            UI.Label { text = "☯", fontSize = 13, fontColor = STYLE.TEXT_GOLD },
                             refs.realmLabel,
                         },
                     },
+                    -- 波次标签
                     UI.Panel {
                         flexDirection = "row",
                         alignItems = "center",
                         gap = 4,
                         paddingHorizontal = 10,
-                        paddingVertical = 5,
-                        backgroundColor = STYLE.HUD_BG,
+                        paddingVertical = 4,
+                        backgroundColor = {80, 58, 35, 200},
                         borderRadius = STYLE.HUD_RADIUS,
-                        borderWidth = 2.5,
-                        borderColor = {80, 75, 70, 200},
+                        borderWidth = 2,
+                        borderColor = STYLE.HUD_BORDER,
                         children = { refs.turnLabel },
                     },
+                    -- 血量标签
                     UI.Panel {
                         flexDirection = "row",
                         alignItems = "center",
                         gap = 4,
                         paddingHorizontal = 10,
-                        paddingVertical = 5,
-                        backgroundColor = STYLE.HUD_BG,
+                        paddingVertical = 4,
+                        backgroundColor = {80, 58, 35, 200},
                         borderRadius = STYLE.HUD_RADIUS,
-                        borderWidth = 2.5,
-                        borderColor = {80, 75, 70, 200},
+                        borderWidth = 2,
+                        borderColor = STYLE.HUD_BORDER,
                         children = {
-                            UI.Label { text = "♥", fontSize = 14, fontColor = STYLE.HP_RED },
+                            UI.Label { text = "♥", fontSize = 13, fontColor = STYLE.HP_RED },
                             refs.hpLabel,
                         },
                     },
@@ -106,69 +115,54 @@ function Views.CreateTopHUD()
             },
             refs.hpBar,
             refs.expBar,
-        }
+        },
     }
 
     return panel, refs
 end
 
 function Views.CreateFieldPanel()
+    -- 现在作为统一游戏面板（战场+部署+暂存）
     return UI.Panel {
         id = "fieldPanel",
         width = "100%",
         flex = 1,
         flexBasis = 0,
         pointerEvents = "box-none",
-        backgroundColor = {180, 215, 235, 180},
-        borderRadius = 12,
-        marginHorizontal = 8,
-        marginVertical = 4,
     }
 end
 
 function Views.CreateDeployPanel(dragContext)
     local slots = {}
-    local rows = {}
 
-    for row = 1, Config.DEPLOY_ROWS do
-        local rowCells = {}
-        for col = 1, Config.GRID_COLS do
-            local idx = (row - 1) * Config.GRID_COLS + col
-            local slot = UI.ItemSlot {
-                slotId = "deploy_" .. idx,
-                slotCategory = "deploy",
-                flex = 1,
-                aspectRatio = 1,
-                dragContext = dragContext,
-                showTypeIcon = false,
-                backgroundColor = STYLE.CARD_BG,
-                borderRadius = STYLE.SLOT_RADIUS,
-                borderWidth = 3,
-                borderColor = STYLE.CARD_BORDER,
-            }
-            slots[idx] = slot
-            table.insert(rowCells, slot)
-        end
-        table.insert(rows, UI.Panel {
-            width = "100%",
-            flexDirection = "row",
-            gap = 8,
-            children = rowCells,
-        })
+    -- 创建透明 ItemSlot（后续由 DeployView.Update 定位）
+    for i = 1, Config.TOTAL_SLOTS do
+        slots[i] = UI.ItemSlot {
+            slotId = "deploy_" .. i,
+            slotCategory = "deploy",
+            position = "absolute",
+            dragContext = dragContext,
+            showTypeIcon = false,
+            backgroundColor = {0, 0, 0, 0},
+            borderWidth = 0,
+            borderColor = {0, 0, 0, 0},
+            borderRadius = 0,
+        }
+    end
+
+    -- 面板：用 aspectRatio=2.5 保持正确高度（2行正方形）
+    local panelChildren = {}
+    for i = 1, Config.TOTAL_SLOTS do
+        table.insert(panelChildren, slots[i])
     end
 
     return UI.Panel {
         id = "deployPanel",
         width = "100%",
-        paddingHorizontal = 12,
-        paddingVertical = 10,
-        gap = 8,
-        backgroundColor = STYLE.GRASS_TOP,
-        borderTopLeftRadius = 16,
-        borderTopRightRadius = 16,
-        borderWidth = 3,
-        borderColor = {70, 130, 60, 200},
-        children = rows,
+        aspectRatio = 2.5,
+        flexShrink = 0,
+        backgroundColor = {0, 0, 0, 0},
+        pointerEvents = "box-none",
     }, slots
 end
 
@@ -177,30 +171,34 @@ function Views.CreateStoragePanel(dragContext)
     local slot = UI.ItemSlot {
         slotId = "storage_1",
         slotCategory = "storage",
-        width = 56,
-        height = 56,
+        flex = 1,
+        aspectRatio = 1,
         dragContext = dragContext,
         showTypeIcon = false,
-        backgroundColor = STYLE.CARD_BG,
-        borderRadius = STYLE.SLOT_RADIUS,
-        borderWidth = 3,
-        borderColor = STYLE.CARD_BORDER,
+        backgroundColor = {0, 0, 0, 0},
+        borderWidth = 0,
+        borderColor = {0, 0, 0, 0},
+        borderRadius = 0,
     }
     slots[1] = slot
 
     return UI.Panel {
         id = "storagePanel",
         width = "100%",
-        paddingHorizontal = 12,
-        paddingVertical = 10,
-        flexDirection = "row",
+        flexShrink = 0,
+        paddingVertical = 8,
         alignItems = "center",
-        justifyContent = "center",
-        gap = 12,
-        backgroundColor = STYLE.EARTH,
-        borderWidth = 3,
-        borderColor = {120, 90, 55, 200},
-        children = { slot },
+        children = {
+            UI.Panel {
+                width = "20%",
+                aspectRatio = 1,
+                backgroundColor = STYLE.DEPLOY_CELL_A,
+                borderWidth = 3,
+                borderColor = {120, 115, 105, 200},
+                borderRadius = 4,
+                children = { slot },
+            },
+        },
     }, slots
 end
 
@@ -210,25 +208,25 @@ function Views.CreateGameOverPanel(onRestart)
         visible = false,
         position = "absolute",
         top = 0, left = 0, right = 0, bottom = 0,
-        backgroundColor = {0, 0, 0, 150},
+        backgroundColor = STYLE.GAMEOVER_OVERLAY,
         justifyContent = "center",
         alignItems = "center",
         children = {
             UI.Panel {
-                width = "80%",
+                width = "78%",
                 maxWidth = 300,
-                padding = 28,
-                gap = 14,
-                backgroundColor = {255, 255, 255, 245},
-                borderRadius = 24,
-                borderWidth = 4,
-                borderColor = STYLE.CARD_BORDER,
+                padding = 24,
+                gap = 12,
+                backgroundColor = STYLE.GAMEOVER_BG,
+                borderRadius = 20,
+                borderWidth = 3,
+                borderColor = STYLE.GAMEOVER_BORDER,
                 alignItems = "center",
                 children = {
                     UI.Label {
                         text = "道陨身殒",
                         fontSize = 22,
-                        fontColor = {200, 60, 50, 255},
+                        fontColor = STYLE.GAMEOVER_TITLE,
                         fontWeight = "bold",
                     },
                     UI.Label {
@@ -245,22 +243,22 @@ function Views.CreateGameOverPanel(onRestart)
                     },
                     UI.Button {
                         text = "再修一世",
-                        width = 150,
-                        height = 48,
+                        width = 140,
+                        height = 44,
                         fontSize = 16,
                         fontWeight = "bold",
-                        marginTop = 8,
-                        borderRadius = 16,
-                        borderWidth = 3,
-                        borderColor = {60, 150, 100, 230},
-                        backgroundColor = {80, 190, 130, 255},
-                        pressedBackgroundColor = {60, 150, 100, 255},
+                        marginTop = 6,
+                        borderRadius = 12,
+                        borderWidth = 2.5,
+                        borderColor = STYLE.GAMEOVER_BTN_BORDER,
+                        backgroundColor = STYLE.GAMEOVER_BTN_BG,
+                        pressedBackgroundColor = STYLE.GAMEOVER_BTN_PRESS,
                         fontColor = STYLE.TEXT_WHITE,
                         onClick = onRestart,
                     },
-                }
-            }
-        }
+                },
+            },
+        },
     }
 end
 

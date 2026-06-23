@@ -27,7 +27,10 @@ end
 
 function BuffSystem.AddBuff(state, buffType, value, duration)
     local realm = Config.REALMS[state.realmIndex]
-    local finalValue = value * realm.pillMul
+    local finalValue = value
+    if buffType == "heal" or buffType == "atkUp" or buffType == "allUp" then
+        finalValue = value * realm.pillMul
+    end
     table.insert(state.buffs, {
         type = buffType,
         value = finalValue,

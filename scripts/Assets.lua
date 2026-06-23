@@ -1,88 +1,104 @@
+-- Assets.lua
+-- 仙侠合成塔防 - 纯矢量资源（使用 emoji + 颜色代替外部图片）
+
 local Config = require("Config")
 
 local Assets = {}
 
-Assets.JIAN_ICONS = {
-    "image/jian_1_20260622134510.png",
-    "image/jian_2_20260622134516.png",
-    "image/jian_3_20260622134525.png",
-    "image/jian_4_20260622134544.png",
-    "image/jian_5_20260622134523.png",
-    "image/jian_6_20260622134515.png",
-    "image/jian_7_20260622134526.png",
-    "image/jian_8_20260622134511.png",
-    "image/jian_9_20260622134518.png",
+-- ============================================================================
+-- 道具矢量图标（emoji + 品质颜色边框）
+-- ============================================================================
+local ITEM_ICONS = {
+    [Config.ITEM_TYPE.ATTACK] = {
+        emoji = "⚔️",
+        names = {"飞剑","灵剑","仙剑","神剑","天剑","圣剑","太古剑","混沌剑","鸿蒙剑"},
+    },
+    [Config.ITEM_TYPE.DEFENSE] = {
+        emoji = "🛡️",
+        names = {"铁甲","玄铁甲","星辰甲","紫霄甲","天罡甲","圣光甲","太古甲","紫金甲","鸿蒙甲"},
+    },
+    [Config.ITEM_TYPE.PILL] = {
+        emoji = "💊",
+        names = {"回灵丹","聚气丹","护体丹","破魔丹","天元丹","太乙丹","太古丹","混沌丹","鸿蒙丹"},
+    },
+    [Config.ITEM_TYPE.TALISMAN] = {
+        emoji = "📜",
+        names = {"镇灵符","青木符","星辰符","紫霄符","烈焰符","鎏金符","太古符","紫金符","鸿蒙符"},
+    },
 }
 
-Assets.FULU_ICONS = {
-    "image/fulu_1.png", "image/fulu_2.png", "image/fulu_3.png",
-    "image/fulu_4.png", "image/fulu_5.png", "image/fulu_6.png",
-    "image/fulu_7.png", "image/fulu_8.png", "image/fulu_9.png",
+-- ============================================================================
+-- 怪物矢量图标
+-- ============================================================================
+local MELEE_ICONS = {
+    { emoji = "👹", color = {200, 80, 70, 255} },    -- 小妖
+    { emoji = "👺", color = {180, 60, 50, 255} },    -- 妖兵/妖将
+    { emoji = "🦇", color = {160, 50, 80, 255} },    -- 妖王
+    { emoji = "😈", color = {140, 30, 60, 255} },    -- 魔尊+
 }
 
-Assets.JINNANG_ICONS = {
-    "image/jinnang_1.png", "image/jinnang_2.png", "image/jinnang_3.png",
-    "image/jinnang_4.png", "image/jinnang_5.png", "image/jinnang_6.png",
-    "image/jinnang_7.png", "image/jinnang_8.png", "image/jinnang_9.png",
+local RANGED_ICONS = {
+    { emoji = "🧙", color = {100, 70, 180, 255} },   -- 邪修
+    { emoji = "🧿", color = {80, 60, 160, 255} },    -- 妖道/魔修
+    { emoji = "👁️", color = {120, 50, 200, 255} },   -- 邪仙
+    { emoji = "💀", color = {100, 40, 180, 255} },    -- 高阶
 }
 
-Assets.DANYAO_ICONS = {
-    "image/danyao_1.png", "image/danyao_2.png", "image/danyao_3.png",
-    "image/danyao_4.png", "image/danyao_5.png", "image/danyao_6.png",
-    "image/danyao_7.png", "image/danyao_8.png", "image/danyao_9.png",
+-- ============================================================================
+-- 宝箱矢量图标
+-- ============================================================================
+local CHEST_ICONS = {
+    { emoji = "📦", color = {180, 150, 100, 255} },  -- 1阶
+    { emoji = "🎁", color = {100, 200, 120, 255} },  -- 2阶
+    { emoji = "💰", color = {80, 150, 255, 255} },   -- 3阶
+    { emoji = "👑", color = {180, 100, 255, 255} },  -- 4阶
+    { emoji = "✨", color = {255, 160, 50, 255} },   -- 5阶
+    { emoji = "🌟", color = {230, 70, 60, 255} },    -- 6阶
+    { emoji = "💎", color = {255, 160, 200, 255} },  -- 7阶
+    { emoji = "🔮", color = {255, 200, 50, 255} },   -- 8阶
+    { emoji = "⭐", color = {180, 140, 40, 255} },   -- 9阶
 }
 
-Assets.BAOXIANG_ICONS = {
-    "image/baoxiang_1.png", "image/baoxiang_2.png", "image/baoxiang_3.png",
-    "image/baoxiang_4.png", "image/baoxiang_5.png", "image/baoxiang_6.png",
-    "image/baoxiang_7.png", "image/baoxiang_8.png", "image/baoxiang_9.png",
-}
+-- ============================================================================
+-- 公开接口
+-- ============================================================================
 
-Assets.MELEE_ICONS = {
-    "image/m_xiaoyao_20260621145055.png",
-    "image/m_yaojiang_20260621145054.png",
-    "image/m_yaowang_20260621145057.png",
-    "image/m_mozun_20260621145056.png",
-}
-
-Assets.RANGED_ICONS = {
-    "image/m_xiexiu_20260621145059.png",
-    "image/m_yaodao_20260621145058.png",
-    "image/m_moxiu_20260621145101.png",
-    "image/m_xiexian_20260621145103.png",
-}
-
+--- 获取道具图标数据（返回 {emoji, color} 用于 UI.Label 渲染）
 function Assets.GetItemIcon(item)
     if not item then return nil end
     local quality = item.quality or 1
-    if item.itemType == Config.ITEM_TYPE.DEFENSE then
-        return Assets.JINNANG_ICONS[quality] or Assets.JINNANG_ICONS[1]
-    elseif item.itemType == Config.ITEM_TYPE.PILL then
-        return Assets.DANYAO_ICONS[quality] or Assets.DANYAO_ICONS[1]
-    elseif item.itemType == Config.ITEM_TYPE.TALISMAN then
-        return Assets.FULU_ICONS[quality] or Assets.FULU_ICONS[1]
+    local info = ITEM_ICONS[item.itemType]
+    if not info then
+        info = ITEM_ICONS[Config.ITEM_TYPE.ATTACK]
     end
-    return Assets.JIAN_ICONS[quality] or Assets.JIAN_ICONS[1]
+    local qualityColor = Config.QUALITY[quality] and Config.QUALITY[quality].color or {200, 200, 200, 255}
+    return {
+        emoji = info.emoji,
+        color = qualityColor,
+        name = info.names[quality] or info.names[1],
+    }
 end
 
-function Assets.GetChestIcon(quality)
-    return Assets.BAOXIANG_ICONS[quality] or Assets.BAOXIANG_ICONS[1]
-end
-
+--- 获取怪物图标数据
 function Assets.GetMonsterIcon(monster)
     if monster.monsterType == Config.MONSTER_TYPE.MELEE then
-        local idx = 1
-        if monster.name == "妖将" then idx = 2
-        elseif monster.name == "妖王" then idx = 3
-        elseif monster.name == "魔尊" then idx = 4 end
-        return Assets.MELEE_ICONS[idx]
+        local q = monster.quality or 1
+        if q <= 2 then return MELEE_ICONS[1]
+        elseif q <= 4 then return MELEE_ICONS[2]
+        elseif q <= 6 then return MELEE_ICONS[3]
+        else return MELEE_ICONS[4] end
+    else
+        local q = monster.quality or 1
+        if q <= 2 then return RANGED_ICONS[1]
+        elseif q <= 4 then return RANGED_ICONS[2]
+        elseif q <= 6 then return RANGED_ICONS[3]
+        else return RANGED_ICONS[4] end
     end
+end
 
-    local idx = 1
-    if monster.name == "妖道" then idx = 2
-    elseif monster.name == "魔修" then idx = 3
-    elseif monster.name == "邪仙" then idx = 4 end
-    return Assets.RANGED_ICONS[idx]
+--- 获取宝箱图标数据
+function Assets.GetChestIcon(quality)
+    return CHEST_ICONS[quality] or CHEST_ICONS[1]
 end
 
 return Assets
