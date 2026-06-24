@@ -121,8 +121,7 @@ function InfoPanelView:ShowItem(item)
     local title = string.format("%s [%s]", item.name, qName)
     local desc = ""
     if item.itemType == Config.ITEM_TYPE.ATTACK then
-        local defIgnoreStr = (item.defIgnore or 0) > 0 and string.format("\n无视%d%%防御", math.floor(item.defIgnore * 100)) or ""
-        desc = string.format("ATK: %d  攻速: %.1fs%s\n攻击同列最前排敌人", item.atk, item.atkSpeed or 1.0, defIgnoreStr)
+        desc = string.format("ATK: %d  攻速: %.1fs\n攻击同列最前排敌人", item.atk, item.atkSpeed or 1.0)
     elseif item.itemType == Config.ITEM_TYPE.DEFENSE then
         local dur = item.durability or 0
         desc = string.format("护盾: %d  减伤: %d%%\n只生效五回合 (剩余%d)", item.shield, math.floor((item.damageReduction or 0) * 100), dur)
