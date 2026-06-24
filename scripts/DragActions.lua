@@ -36,6 +36,14 @@ function DragActions.CanDrop(state, sourceSlot, targetSlot)
     local srcCat = sourceSlot:GetSlotCategory()
     local dstCat = targetSlot:GetSlotCategory()
 
+    if dstCat == "decompose" then
+        return srcCat == "deploy" or srcCat == "storage"
+    end
+
+    if srcCat == "decompose" then
+        return false
+    end
+
     if srcCat == "deploy" and dstCat == "storage" then
         return false
     end
@@ -72,6 +80,25 @@ function DragActions.ApplyDrop(state, sourceSlot, targetSlot)
     local srcItem = DragActions.GetItemFromSlot(state, fromCat, fromIdx)
     local dstItem = DragActions.GetItemFromSlot(state, toCat, toIdx)
     if not srcItem then return { changed = false } end
+
+    if toCat == "decompose" then
+        if fromCat == "deploy" then
+            local ok = ItemSystem.DecomposeItem(state, fromIdx)
+            return { changed = ok, decomposed = ok }
+        elseif fromCat == "storage" then
+            local expGain = Config.DECOMPOSE_EXP[srcItem.quality] or 2
+            local RealmSystem = require("RealmSystem")
+            RealmSystem.AddExp(state, expGain)
+            DragActions.SetItemToSlot(state, fromCat, fromIdx, nil)
+            print(string.format("[Decompose] 分解 %s → +%d修为", srcItem.name, expGain))
+            return { changed = true, decomposed = true }
+        end
+        return { changed = false }
+    end
+
+    if fromCat == "decompose" then
+        return { changed = false }
+    end
 
     if fromCat == "deploy" and toCat == "storage" then
         return { changed = false }

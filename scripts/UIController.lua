@@ -74,6 +74,7 @@ function UIController.Create(state, callbacks)
         fieldPanel = nil,
         deploySlots = {},
         storageSlots = {},
+        decomposeSlot = nil,
         gameOverPanel = nil,
         infoPanel = nil,
         dragContext = nil,
@@ -131,21 +132,17 @@ function UIController.Create(state, callbacks)
     self.uiRoot = UI.Panel {
         width = "100%",
         height = "100%",
-        backgroundColor = STYLE.BG_TOP,
-        backgroundImage = "image/xianxia_bg_20260623202734.png",
-        backgroundFit = "cover",
+        backgroundColor = {28, 68, 64, 255},
         children = {
             UI.Panel {
                 id = "gameContainer",
                 width = "100%",
                 height = "100%",
                 children = {
-                    UI.SafeAreaView {
+                    UI.Panel {
                         width = "100%",
                         height = "100%",
-                        edges = "top",
                         children = {
-                            topHUD,
                             self.fieldPanel,
                         },
                     },
@@ -213,6 +210,18 @@ function UIController:CreateSlots()
             self:ShowItemInfo(self.currentState_.dropQueue[1])
         end
     end
+
+    self.decomposeSlot = UI.ItemSlot {
+        slotId = "decompose_1",
+        slotCategory = "decompose",
+        dragContext = self.dragContext,
+        showTypeIcon = false,
+        backgroundColor = {0, 0, 0, 0},
+        borderWidth = 0,
+        borderColor = {0, 0, 0, 0},
+        borderRadius = 0,
+        iconColor = {0, 0, 0, 0},
+    }
 end
 
 function UIController:ShowItemInfo(item)
@@ -293,7 +302,7 @@ function UIController:UpdateFieldPanel(state)
 end
 
 function UIController:UpdateBoard(state)
-    BoardView.Update(self.fieldPanel, state, self.deploySlots, self.storageSlots[1], {
+    BoardView.Update(self.fieldPanel, state, self.deploySlots, self.storageSlots[1], self.decomposeSlot, {
         onMonsterClick = function(monster)
             self:ShowMonsterInfo(monster)
         end,

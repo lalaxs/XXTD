@@ -1,38 +1,26 @@
 -- BoardView.lua
--- 统一游戏面板视图 - 战场+部署+暂存全部用绝对定位
--- 一个面板，一套坐标，一个 cellSize
+-- 新版战斗页面：使用拆分 UI 素材拼装完整战斗场景
 
 local UI = require("urhox-libs/UI")
 local Config = require("Config")
-local STYLE = require("Theme")
 local SlotAdapter = require("SlotAdapter")
 
 local BoardView = {}
 
--- 总行数 = 战场7行 + 部署2行 + 暂存1行
-local TOTAL_ROWS = Config.FIELD_ROWS + Config.DEPLOY_ROWS + 1
+local DESIGN_W = 1080
+local DESIGN_H = 2284
+local PAGE_SCALE_BOOST = 1.08
 
---- 计算棋盘度量
-function BoardView.CalcMetrics(panelW, panelH)
-    -- 以宽度为基准计算正方形格子
-    local cellSize = panelW / Config.GRID_COLS
-    local totalGridH = TOTAL_ROWS * cellSize
+local UI_ASSETS = {
+    bg = "image/bg.png",
+    hpBarBg = "image/bar_0_long.png",
+    hpBarFill = "image/bar_1_long.png",
+    decomposeArea = "image/fenjie_area.png",
+    decomposeIcon = "image/fenjie.png",
+    storage = "image/taizi.png",
+    menu = "image/caidan.png",
+}
 
-    -- 如果总高度超出面板，以高度为基准
-    if totalGridH > panelH then
-        cellSize = panelH / TOTAL_ROWS
-    end
-
-    return {
-        cellSize = cellSize,
-        cols = Config.GRID_COLS,
-        fieldRows = Config.FIELD_ROWS,
-        deployRows = Config.DEPLOY_ROWS,
-        totalRows = TOTAL_ROWS,
-    }
-end
-
---- 获取怪物图片
 local MELEE_IMAGES = {
     "image/enemy/enemy_ (1).png",
     "image/enemy/enemy_ (2).png",
@@ -56,94 +44,222 @@ local RANGED_IMAGES = {
     "image/enemy/enemy_ (18).png",
 }
 
+local function Clamp01(value)
+    return math.min(1.0, math.max(0.0, value or 0))
+end
+
 local function GetMonsterImage(monster)
     local q = monster.quality or 1
     if monster.monsterType == Config.MONSTER_TYPE.MELEE then
         return MELEE_IMAGES[q] or MELEE_IMAGES[1]
-    else
-        return RANGED_IMAGES[q] or RANGED_IMAGES[1]
     end
+    return RANGED_IMAGES[q] or RANGED_IMAGES[1]
 end
 
---- 更新整个面板
-function BoardView.Update(boardPanel, state, slots, storageSlot, callbacks)
+local function D(layout, scale)
+    return {
+        x = layout.x * scale,
+        y = layout.y * scale,
+        w = layout.w * scale,
+        h = layout.h * scale,
+    }
+end
+
+function BoardView.CalcMetrics(panelW, panelH)
+    -- 战斗页按宽度适配：保证左右 UI 不被裁剪；更高手机屏由底图上下延展或根背景补足。
+    local scale = panelW / DESIGN_W * PAGE_SCALE_BOOST
+    local pageW = DESIGN_W * scale
+    local pageH = DESIGN_H * scale
+    local originX = (panelW - pageW) / 2
+    local originY = (panelH - pageH) / 2
+
+    local gridX = 46
+    local fieldY = 172
+    local cellW = 197
+    local fieldCellH = 190
+    local deployY = 1590
+    local deployCellH = 178
+
+    return {
+        scale = scale,
+        pageW = pageW,
+        pageH = pageH,
+        originX = originX,
+        originY = originY,
+        gridX = gridX,
+        fieldY = fieldY,
+        deployY = deployY,
+        cellW = cellW,
+        fieldCellH = fieldCellH,
+        deployCellH = deployCellH,
+        hpBar = { x = 37, y = 1528, w = 1010, h = 28 },
+        expCircle = { x = 690, y = 2054, w = 150, h = 150 },
+        decomposeArea = { x = 28, y = 2058, w = 376, h = 148 },
+        decomposeIcon = { x = 142, y = 2038, w = 128, h = 136 },
+        storage = { x = 430, y = 2115, w = 220, h = 82 },
+        menu = { x = 887, y = 2058, w = 118, h = 118 },
+    }
+end
+
+local function AddImage(parent, m, designRect, image, fit, extra)
+    local rect = D(designRect, m.scale)
+    local props = {
+        position = "absolute",
+        left = m.originX + rect.x,
+        top = m.originY + rect.y,
+        width = rect.w,
+        height = rect.h,
+        backgroundImage = image,
+        backgroundFit = fit or "stretch",
+        backgroundColor = {0, 0, 0, 0},
+        pointerEvents = "none",
+    }
+    if extra then
+        for k, v in pairs(extra) do props[k] = v end
+    end
+    parent:AddChild(UI.Panel(props))
+end
+
+local function CellRect(m, row, col, isDeploy)
+    local x = m.gridX + (col - 1) * m.cellW
+    local y
+    local h
+    if isDeploy then
+        y = m.deployY + (row - 1) * m.deployCellH
+        h = m.deployCellH
+    else
+        y = m.fieldY + (row - 1) * m.fieldCellH
+        h = m.fieldCellH
+    end
+    local rect = D({ x = x, y = y, w = m.cellW, h = h }, m.scale)
+    return {
+        x = m.originX + rect.x,
+        y = m.originY + rect.y,
+        w = rect.w,
+        h = rect.h,
+    }
+end
+
+local function AddStatusBars(boardPanel, state, m)
+    local hpRatio = Clamp01(state.hp / math.max(1, state.maxHp))
+    local hp = D(m.hpBar, m.scale)
+    boardPanel:AddChild(UI.Panel {
+        position = "absolute",
+        left = m.originX + hp.x,
+        top = m.originY + hp.y,
+        width = hp.w,
+        height = hp.h,
+        backgroundImage = UI_ASSETS.hpBarBg,
+        backgroundFit = "stretch",
+        pointerEvents = "none",
+        children = {
+            UI.Panel {
+                position = "absolute",
+                left = 0,
+                top = 0,
+                width = tostring(math.floor(hpRatio * 100)) .. "%",
+                height = "100%",
+                overflow = "hidden",
+                pointerEvents = "none",
+                children = {
+                    UI.Panel {
+                        position = "absolute",
+                        left = 0,
+                        top = 0,
+                        width = hp.w,
+                        height = hp.h,
+                        backgroundImage = UI_ASSETS.hpBarFill,
+                        backgroundFit = "stretch",
+                        pointerEvents = "none",
+                    },
+                },
+            },
+            UI.Label {
+                position = "absolute",
+                left = 0,
+                right = 0,
+                top = -1 * m.scale,
+                height = hp.h,
+                text = tostring(state.hp),
+                fontSize = math.floor(22 * m.scale),
+                fontColor = {245, 210, 185, 255},
+                fontWeight = "bold",
+                textAlign = "center",
+                pointerEvents = "none",
+            },
+        },
+    })
+
+    local realm = Config.REALMS[state.realmIndex]
+    local nextExp = 9999
+    if state.realmIndex < #Config.REALMS then
+        nextExp = Config.REALMS[state.realmIndex + 1].expRequired
+    end
+    local base = realm.expRequired
+    local progress = Clamp01((state.exp - base) / math.max(1, nextExp - base))
+    local circle = D(m.expCircle, m.scale)
+    boardPanel:AddChild(UI.Panel {
+        position = "absolute",
+        left = m.originX + circle.x,
+        top = m.originY + circle.y,
+        width = circle.w,
+        height = circle.h,
+        borderRadius = circle.w / 2,
+        borderWidth = 4 * m.scale,
+        borderColor = {75, 52, 30, 220},
+        backgroundColor = {246, 197, 130, 245},
+        alignItems = "center",
+        justifyContent = "center",
+        pointerEvents = "none",
+        children = {
+            UI.Panel {
+                position = "absolute",
+                left = 8 * m.scale,
+                bottom = 8 * m.scale,
+                width = math.max(0, circle.w - 16 * m.scale) * progress,
+                height = 10 * m.scale,
+                borderRadius = 5 * m.scale,
+                backgroundColor = {143, 92, 188, 230},
+                pointerEvents = "none",
+            },
+            UI.Label {
+                text = tostring(math.floor(progress * 100)) .. "%",
+                fontSize = math.floor(28 * m.scale),
+                fontColor = {80, 50, 35, 255},
+                fontWeight = "bold",
+                pointerEvents = "none",
+            },
+        },
+    })
+end
+
+function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, callbacks)
     boardPanel:ClearChildren()
 
     local layout = boardPanel:GetAbsoluteLayout()
     if not layout or layout.w == 0 or layout.h == 0 then return end
 
     local m = BoardView.CalcMetrics(layout.w, layout.h)
-    local cellSize = m.cellSize
-    local boardW = cellSize * Config.GRID_COLS
-    local offsetX = (layout.w - boardW) / 2
 
-    -- ================================================================
-    -- 1. 战场区格子 (row 0-6)
-    -- ================================================================
-    for row = 0, Config.FIELD_ROWS - 1 do
-        for col = 0, Config.GRID_COLS - 1 do
-            local isA = (row + col) % 2 == 0
-            boardPanel:AddChild(UI.Panel {
-                position = "absolute",
-                left = offsetX + col * cellSize,
-                top = row * cellSize,
-                width = cellSize,
-                height = cellSize,
-                backgroundColor = isA and STYLE.FIELD_CELL_A or STYLE.FIELD_CELL_B,
-                pointerEvents = "none",
-            })
-        end
-    end
+    AddImage(boardPanel, m, { x = 0, y = 0, w = DESIGN_W, h = DESIGN_H }, UI_ASSETS.bg, "stretch")
+    AddStatusBars(boardPanel, state, m)
+    AddImage(boardPanel, m, m.decomposeArea, UI_ASSETS.decomposeArea, "stretch")
+    AddImage(boardPanel, m, m.decomposeIcon, UI_ASSETS.decomposeIcon, "contain")
+    AddImage(boardPanel, m, m.storage, UI_ASSETS.storage, "stretch")
+    AddImage(boardPanel, m, m.menu, UI_ASSETS.menu, "contain")
 
-    -- ================================================================
-    -- 2. 部署区格子 (row 7-8)
-    -- ================================================================
-    for row = 0, Config.DEPLOY_ROWS - 1 do
-        for col = 0, Config.GRID_COLS - 1 do
-            local globalRow = Config.FIELD_ROWS + row
-            local isA = (globalRow + col) % 2 == 0
-            boardPanel:AddChild(UI.Panel {
-                position = "absolute",
-                left = offsetX + col * cellSize,
-                top = globalRow * cellSize,
-                width = cellSize,
-                height = cellSize,
-                backgroundColor = isA and STYLE.DEPLOY_CELL_A or STYLE.DEPLOY_CELL_B,
-                pointerEvents = "none",
-            })
-        end
-    end
-
-    -- ================================================================
-    -- 3. 暂存区格子 (row 9, 中间1格)
-    -- ================================================================
-    local storageRow = Config.FIELD_ROWS + Config.DEPLOY_ROWS
-    local storageCol = 2 -- 中间列
-    boardPanel:AddChild(UI.Panel {
-        position = "absolute",
-        left = offsetX + storageCol * cellSize,
-        top = storageRow * cellSize,
-        width = cellSize,
-        height = cellSize,
-        backgroundColor = STYLE.DEPLOY_CELL_A,
-        pointerEvents = "none",
-    })
-
-    -- ================================================================
-    -- 4. 怪物（视觉+交互）
-    -- ================================================================
     for _, monster in ipairs(state.monsters) do
         if monster.row >= 1 and monster.row <= Config.FIELD_ROWS and monster.hp > 0 then
-            local x = offsetX + (monster.col - 1) * cellSize
-            local y = (monster.row - 1) * cellSize
+            local r = CellRect(m, monster.row, monster.col, false)
             local img = GetMonsterImage(monster)
             local hpRatio = math.max(0.02, monster.hp / monster.maxHp)
             local monsterRef = monster
-
             boardPanel:AddChild(UI.Panel {
                 position = "absolute",
-                left = x, top = y,
-                width = cellSize, height = cellSize,
+                left = r.x,
+                top = r.y,
+                width = r.w,
+                height = r.h,
                 alignItems = "center",
                 justifyContent = "flex-end",
                 overflow = "visible",
@@ -154,33 +270,29 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, callbacks)
                     end
                 end,
                 children = {
-                    -- 立绘
                     UI.Panel {
                         position = "absolute",
-                        bottom = 6,
-                        width = cellSize * 0.9,
-                        aspectRatio = 5/6,
+                        bottom = 12 * m.scale,
+                        width = r.w * 0.78,
+                        aspectRatio = 5 / 6,
                         backgroundImage = img,
                         backgroundFit = "contain",
                         pointerEvents = "none",
                     },
-                    -- 血条
                     UI.Panel {
                         position = "absolute",
-                        bottom = 2,
-                        width = "72%",
-                        height = 10,
-                        backgroundColor = {50, 40, 30, 220},
-                        borderRadius = 5,
-                        borderWidth = 5,
-                        borderColor = {35, 28, 20, 255},
+                        bottom = 10 * m.scale,
+                        width = "70%",
+                        height = 10 * m.scale,
+                        borderRadius = 5 * m.scale,
+                        backgroundColor = {70, 80, 80, 220},
                         pointerEvents = "none",
                         children = {
                             UI.Panel {
                                 width = tostring(math.floor(hpRatio * 100)) .. "%",
                                 height = "100%",
-                                backgroundColor = {220, 55, 40, 255},
-                                borderRadius = 3.5,
+                                borderRadius = 5 * m.scale,
+                                backgroundColor = {220, 55, 45, 255},
                                 pointerEvents = "none",
                             },
                         },
@@ -190,19 +302,17 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, callbacks)
         end
     end
 
-    -- ================================================================
-    -- 5. 宝箱
-    -- ================================================================
     for _, chest in ipairs(state.chests) do
         if chest.row >= 1 and chest.row <= Config.FIELD_ROWS then
-            local x = offsetX + (chest.col - 1) * cellSize
-            local y = (chest.row - 1) * cellSize
+            local r = CellRect(m, chest.row, chest.col, false)
             local chestQ = chest.quality or 1
             local qColor = Config.QUALITY[chestQ] and Config.QUALITY[chestQ].color or {180, 150, 100, 255}
             boardPanel:AddChild(UI.Panel {
                 position = "absolute",
-                left = x, top = y,
-                width = cellSize, height = cellSize,
+                left = r.x,
+                top = r.y,
+                width = r.w,
+                height = r.h,
                 alignItems = "center",
                 justifyContent = "center",
                 pointerEvents = "auto",
@@ -213,11 +323,11 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, callbacks)
                 end,
                 children = {
                     UI.Panel {
-                        width = cellSize * 0.5,
-                        height = cellSize * 0.4,
+                        width = r.w * 0.48,
+                        height = r.h * 0.38,
                         backgroundColor = {120, 85, 45, 240},
-                        borderRadius = 4,
-                        borderWidth = 2,
+                        borderRadius = 8 * m.scale,
+                        borderWidth = 3 * m.scale,
                         borderColor = qColor,
                         alignItems = "center",
                         justifyContent = "center",
@@ -225,7 +335,7 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, callbacks)
                         children = {
                             UI.Label {
                                 text = "宝",
-                                fontSize = math.floor(cellSize * 0.2),
+                                fontSize = math.floor(r.w * 0.2),
                                 fontColor = qColor,
                                 fontWeight = "bold",
                                 pointerEvents = "none",
@@ -237,110 +347,97 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, callbacks)
         end
     end
 
-    -- ================================================================
-    -- 6. 部署区道具图片（视觉层）
-    -- ================================================================
     for i = 1, Config.TOTAL_SLOTS do
         local item = state.slots[i]
+        local row = math.ceil(i / Config.GRID_COLS)
+        local col = ((i - 1) % Config.GRID_COLS) + 1
+        local r = CellRect(m, row, col, true)
         if item then
-            local row = math.ceil(i / Config.GRID_COLS) - 1
-            local col = (i - 1) % Config.GRID_COLS
-            local globalRow = Config.FIELD_ROWS + row
-            local x = offsetX + col * cellSize
-            local y = globalRow * cellSize
-            local img = SlotAdapter.GetItemImage(item)
-            local qColor = Config.QUALITY[item.quality] and Config.QUALITY[item.quality].color
-                or {200, 200, 200, 255}
-
             boardPanel:AddChild(UI.Panel {
                 position = "absolute",
-                left = x,
-                top = y,
-                width = cellSize,
-                height = cellSize,
-                backgroundImage = img,
+                left = r.x,
+                top = r.y,
+                width = r.w,
+                height = r.h,
+                backgroundImage = SlotAdapter.GetItemImage(item),
                 backgroundFit = "contain",
                 pointerEvents = "none",
             })
         end
     end
 
-    -- ================================================================
-    -- 7. 暂存区道具图片
-    -- ================================================================
     if state.dropQueue[1] then
         local item = state.dropQueue[1]
-        local img = SlotAdapter.GetItemImage(item)
-        local x = offsetX + storageCol * cellSize
-        local y = storageRow * cellSize
+        local s = D({ x = 450, y = 2065, w = 180, h = 150 }, m.scale)
         boardPanel:AddChild(UI.Panel {
             position = "absolute",
-            left = x, top = y,
-            width = cellSize, height = cellSize,
-            alignItems = "center",
-            justifyContent = "center",
-            overflow = "visible",
+            left = m.originX + s.x,
+            top = m.originY + s.y,
+            width = s.w,
+            height = s.h,
+            backgroundImage = SlotAdapter.GetItemImage(item),
+            backgroundFit = "contain",
             pointerEvents = "none",
-            children = {
-                UI.Panel {
-                    width = cellSize * 0.8,
-                    aspectRatio = 5/6,
-                    backgroundImage = img,
-                    backgroundFit = "contain",
-                    pointerEvents = "none",
-                },
-            },
         })
     end
 
-    -- ================================================================
-    -- 8. ItemSlot 交互层（全部透明，最上层）
-    -- ================================================================
     for i = 1, Config.TOTAL_SLOTS do
-        local row = math.ceil(i / Config.GRID_COLS) - 1
-        local col = (i - 1) % Config.GRID_COLS
-        local globalRow = Config.FIELD_ROWS + row
-        local x = offsetX + col * cellSize
-        local y = globalRow * cellSize
+        local row = math.ceil(i / Config.GRID_COLS)
+        local col = ((i - 1) % Config.GRID_COLS) + 1
+        local r = CellRect(m, row, col, true)
         local slot = slots[i]
         if slot then
             slot:SetStyle({
                 position = "absolute",
-                left = x, top = y,
-                width = cellSize, height = cellSize,
+                left = r.x,
+                top = r.y,
+                width = r.w,
+                height = r.h,
             })
             slot:SetItem(SlotAdapter.ItemToSlotData(state.slots[i]))
-            -- SetItem 内部会覆盖 backgroundColor，必须在之后再强制透明
             slot.props.backgroundColor = {0, 0, 0, 0}
             slot.props.borderWidth = 0
             slot.props.borderColor = {0, 0, 0, 0}
             slot.props.borderRadius = 0
-            if slot.iconLabel_ then
-                slot.iconLabel_:SetText("")
-            end
+            if slot.iconLabel_ then slot.iconLabel_:SetText("") end
             boardPanel:AddChild(slot)
         end
     end
 
-    -- 暂存 slot
     if storageSlot then
-        local x = offsetX + storageCol * cellSize
-        local y = storageRow * cellSize
+        local s = D({ x = 430, y = 2065, w = 220, h = 132 }, m.scale)
         storageSlot:SetStyle({
             position = "absolute",
-            left = x, top = y,
-            width = cellSize, height = cellSize,
+            left = m.originX + s.x,
+            top = m.originY + s.y,
+            width = s.w,
+            height = s.h,
         })
         storageSlot:SetItem(SlotAdapter.ItemToSlotData(state.dropQueue[1]))
-        -- SetItem 之后强制透明
         storageSlot.props.backgroundColor = {0, 0, 0, 0}
         storageSlot.props.borderWidth = 0
         storageSlot.props.borderColor = {0, 0, 0, 0}
         storageSlot.props.borderRadius = 0
-        if storageSlot.iconLabel_ then
-            storageSlot.iconLabel_:SetText("")
-        end
+        if storageSlot.iconLabel_ then storageSlot.iconLabel_:SetText("") end
         boardPanel:AddChild(storageSlot)
+    end
+
+    if decomposeSlot then
+        local d = D({ x = 28, y = 2010, w = 376, h = 197 }, m.scale)
+        decomposeSlot:SetStyle({
+            position = "absolute",
+            left = m.originX + d.x,
+            top = m.originY + d.y,
+            width = d.w,
+            height = d.h,
+        })
+        decomposeSlot:SetItem(nil)
+        decomposeSlot.props.backgroundColor = {0, 0, 0, 0}
+        decomposeSlot.props.borderWidth = 0
+        decomposeSlot.props.borderColor = {0, 0, 0, 0}
+        decomposeSlot.props.borderRadius = 0
+        if decomposeSlot.iconLabel_ then decomposeSlot.iconLabel_:SetText("") end
+        boardPanel:AddChild(decomposeSlot)
     end
 end
 
