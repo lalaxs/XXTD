@@ -10,6 +10,8 @@ logs/.nfs*
 
 # Temp & swap files
 .tmp/
+_uploads/
+XXTD/
 *.crswap
 .DS_Store
 
@@ -18,6 +20,7 @@ logs/.nfs*
 ossutil_output/
 
 # Editor / IDE / agent configs
+.agent/
 .vscode/
 .cursor/
 .codex/

@@ -193,10 +193,8 @@ function HandleNanoVGRender(eventType, eventData)
     local dpr = graphics:GetDPR()
     local lw = w / dpr
     local lh = h / dpr
-    local layoutSnapshot = uiController_:GetEffectLayoutSnapshot()
-
     nvgBeginFrame(vg_, lw, lh, dpr)
     -- 只绘制特效（图标已在 UI 层渲染）
-    Effects.Render(vg_, state_, layoutSnapshot, lw, lh)
+    Effects.Render(vg_, state_, lw, lh)
     nvgEndFrame(vg_)
 end

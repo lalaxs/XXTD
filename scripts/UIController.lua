@@ -5,6 +5,7 @@ local SlotAdapter = require("SlotAdapter")
 local Views = require("Views")
 local BoardView = require("BoardView")
 local InfoPanelView = require("InfoPanelView")
+local Effects = require("Effects")
 
 local UIController = {}
 UIController.__index = UIController
@@ -53,13 +54,6 @@ local function ApplyItemSlotVisual(slot, item)
             slot.iconLabel_:SetText("")
         end
     end
-end
-
-local function CaptureLayout(element)
-    if not element then return nil end
-    local layout = element:GetAbsoluteLayout()
-    if not layout or layout.w <= 0 or layout.h <= 0 then return nil end
-    return { x = layout.x, y = layout.y, w = layout.w, h = layout.h }
 end
 
 function UIController.Create(state, callbacks)
@@ -322,28 +316,6 @@ end
 
 function UIController:HideGameOver()
     self.gameOverPanel:SetVisible(false)
-end
-
-function UIController:GetEffectLayoutSnapshot()
-    local deployLayouts = {}
-    for i = 1, Config.TOTAL_SLOTS do
-        deployLayouts[i] = CaptureLayout(self.deploySlots[i])
-    end
-
-    local storageLayouts = {}
-    storageLayouts[1] = CaptureLayout(self.storageSlots[1])
-
-    -- 捕获部署面板和存储面板的整体布局作为后备
-    local deployPanelEl = self.uiRoot and self.uiRoot:FindById("deployPanel") or nil
-    local storagePanelEl = self.uiRoot and self.uiRoot:FindById("storagePanel") or nil
-
-    return {
-        deploySlots = deployLayouts,
-        storageSlots = storageLayouts,
-        field = CaptureLayout(self.fieldPanel),
-        deployPanel = CaptureLayout(deployPanelEl),
-        storagePanel = CaptureLayout(storagePanelEl),
-    }
 end
 
 return UIController

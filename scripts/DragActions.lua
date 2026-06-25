@@ -4,9 +4,29 @@ local BuffSystem = require("BuffSystem")
 
 local DragActions = {}
 
+local function IsValidSlot(category, idx)
+    if not idx then return false end
+    if category == "deploy" then
+        return idx >= 1 and idx <= Config.TOTAL_SLOTS
+    elseif category == "storage" then
+        return idx == 1
+    elseif category == "decompose" then
+        return idx == 1
+    end
+    return false
+end
+
 function DragActions.ParseSlotIndex(slotId)
     local num = string.match(tostring(slotId), "%d+")
     return num and tonumber(num) or nil
+end
+
+function DragActions.ParseSlot(slot)
+    if not slot then return nil, nil end
+    local category = slot:GetSlotCategory()
+    local idx = DragActions.ParseSlotIndex(slot:GetSlotId())
+    if not IsValidSlot(category, idx) then return nil, nil end
+    return category, idx
 end
 
 function DragActions.GetItemFromSlot(state, category, idx)
@@ -34,7 +54,8 @@ function DragActions.CanDrop(state, sourceSlot, targetSlot)
     if not sourceSlot or not targetSlot then return false end
 
     local srcCat = sourceSlot:GetSlotCategory()
-    local dstCat = targetSlot:GetSlotCategory()
+    local dstCat, dstIdx = DragActions.ParseSlot(targetSlot)
+    if not dstCat then return false end
 
     if dstCat == "decompose" then
         return srcCat == "deploy" or srcCat == "storage"
@@ -49,10 +70,8 @@ function DragActions.CanDrop(state, sourceSlot, targetSlot)
     end
 
     if srcCat == "storage" and dstCat == "deploy" then
-        local toIdx = DragActions.ParseSlotIndex(targetSlot:GetSlotId())
-        if not toIdx then return false end
         local srcItem = state.dropQueue[1]
-        local dstItem = state.slots[toIdx]
+        local dstItem = state.slots[dstIdx]
         if not srcItem then return false end
         if not dstItem then return true end
         return srcItem.itemType == dstItem.itemType
@@ -64,18 +83,16 @@ function DragActions.CanDrop(state, sourceSlot, targetSlot)
 end
 
 function DragActions.ApplyDrop(state, sourceSlot, targetSlot)
-    local fromCat = sourceSlot:GetSlotCategory()
+    local fromCat, fromIdx = DragActions.ParseSlot(sourceSlot)
+    local toCat, toIdx = DragActions.ParseSlot(targetSlot)
+    if not fromCat or not toCat then return { changed = false } end
+
     local fromId = sourceSlot:GetSlotId()
-    local toCat = targetSlot:GetSlotCategory()
     local toId = targetSlot:GetSlotId()
 
     if fromCat == toCat and fromId == toId then
         return { changed = false }
     end
-
-    local fromIdx = DragActions.ParseSlotIndex(fromId)
-    local toIdx = DragActions.ParseSlotIndex(toId)
-    if not fromIdx or not toIdx then return { changed = false } end
 
     local srcItem = DragActions.GetItemFromSlot(state, fromCat, fromIdx)
     local dstItem = DragActions.GetItemFromSlot(state, toCat, toIdx)

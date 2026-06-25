@@ -9,7 +9,6 @@ local BoardView = {}
 
 local DESIGN_W = 1080
 local DESIGN_H = 2284
-local PAGE_SCALE_BOOST = 1.08
 
 local UI_ASSETS = {
     bg = "image/bg.png",
@@ -66,8 +65,9 @@ local function D(layout, scale)
 end
 
 function BoardView.CalcMetrics(panelW, panelH)
-    -- 战斗页按宽度适配：保证左右 UI 不被裁剪；更高手机屏由底图上下延展或根背景补足。
-    local scale = panelW / DESIGN_W * PAGE_SCALE_BOOST
+    -- 以 1080x2284 为设计稿做 CONTAIN 等比适配：
+    -- 手机、平板、电脑统一使用同一套缩放和居中偏移，宽屏两侧留空但不拉伸变形。
+    local scale = math.min(panelW / DESIGN_W, panelH / DESIGN_H)
     local pageW = DESIGN_W * scale
     local pageH = DESIGN_H * scale
     local originX = (panelW - pageW) / 2
@@ -92,7 +92,7 @@ function BoardView.CalcMetrics(panelW, panelH)
         cellW = cellW,
         fieldCellH = fieldCellH,
         deployCellH = deployCellH,
-        hpBar = { x = 37, y = 1528, w = 1010, h = 28 },
+        hpBar = { x = 70, y = 1522, w = 940, h = 40 },
         expCircle = { x = 690, y = 2054, w = 150, h = 150 },
         decomposeArea = { x = 28, y = 2058, w = 376, h = 148 },
         decomposeIcon = { x = 142, y = 2038, w = 128, h = 136 },
@@ -140,6 +140,8 @@ local function CellRect(m, row, col, isDeploy)
     }
 end
 
+BoardView.CellRect = CellRect
+
 local function AddStatusBars(boardPanel, state, m)
     local hpRatio = Clamp01(state.hp / math.max(1, state.maxHp))
     local hp = D(m.hpBar, m.scale)
@@ -174,18 +176,25 @@ local function AddStatusBars(boardPanel, state, m)
                     },
                 },
             },
-            UI.Label {
+            UI.Panel {
                 position = "absolute",
                 left = 0,
-                right = 0,
-                top = -1 * m.scale,
+                top = 0,
+                width = hp.w,
                 height = hp.h,
-                text = tostring(state.hp),
-                fontSize = math.floor(22 * m.scale),
-                fontColor = {245, 210, 185, 255},
-                fontWeight = "bold",
-                textAlign = "center",
+                alignItems = "center",
+                justifyContent = "center",
                 pointerEvents = "none",
+                children = {
+                    UI.Label {
+                        text = tostring(state.hp),
+                        fontSize = math.floor(26 * m.scale),
+                        fontColor = {245, 210, 185, 255},
+                        fontWeight = "bold",
+                        textAlign = "center",
+                        pointerEvents = "none",
+                    },
+                },
             },
         },
     })
@@ -281,19 +290,33 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
                     },
                     UI.Panel {
                         position = "absolute",
-                        bottom = 10 * m.scale,
-                        width = "70%",
-                        height = 10 * m.scale,
-                        borderRadius = 5 * m.scale,
-                        backgroundColor = {70, 80, 80, 220},
+                        bottom = 8 * m.scale,
+                        width = r.w * 0.74,
+                        height = 18 * m.scale,
+                        backgroundImage = UI_ASSETS.hpBarBg,
+                        backgroundFit = "stretch",
                         pointerEvents = "none",
                         children = {
                             UI.Panel {
+                                position = "absolute",
+                                left = 0,
+                                top = 0,
                                 width = tostring(math.floor(hpRatio * 100)) .. "%",
                                 height = "100%",
-                                borderRadius = 5 * m.scale,
-                                backgroundColor = {220, 55, 45, 255},
+                                overflow = "hidden",
                                 pointerEvents = "none",
+                                children = {
+                                    UI.Panel {
+                                        position = "absolute",
+                                        left = 0,
+                                        top = 0,
+                                        width = r.w * 0.74,
+                                        height = 18 * m.scale,
+                                        backgroundImage = UI_ASSETS.hpBarFill,
+                                        backgroundFit = "stretch",
+                                        pointerEvents = "none",
+                                    },
+                                },
                             },
                         },
                     },

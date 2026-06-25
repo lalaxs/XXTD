@@ -205,6 +205,7 @@ function GameState.ExecuteItems(state)
                         col = col,
                         targetType = "monster",
                         targetRow = frontMonster.row,
+                        target = frontMonster,
                     })
                     frontMonster.hp = frontMonster.hp - finalDmg
                     table.insert(state.lastDamageDealt, {col = col, row = frontMonster.row, dmg = finalDmg})
@@ -214,6 +215,7 @@ function GameState.ExecuteItems(state)
                         col = col,
                         targetType = "chest",
                         targetRow = frontChest.row,
+                        target = frontChest,
                     })
                     -- 宝箱被击中：掉落1个物品，品质=宝箱品质
                     frontChest.hp = 0
