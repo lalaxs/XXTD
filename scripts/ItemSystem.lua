@@ -110,6 +110,12 @@ function ItemSystem.TryMerge(state, fromSlot, toSlot)
 
     local newQuality = itemA.quality + 1
     local newItem = ItemSystem.CreateItem(itemA.itemType, newQuality)
+    if newItem.itemType == Config.ITEM_TYPE.DEFENSE then
+        local durA = itemA.durability or itemA.maxDurability or 5
+        local durB = itemB.durability or itemB.maxDurability or 5
+        newItem.durability = math.max(durA, durB)
+        newItem.maxDurability = math.max(newItem.maxDurability or 5, newItem.durability)
+    end
 
     state.slots[toSlot] = newItem
     state.slots[fromSlot] = nil

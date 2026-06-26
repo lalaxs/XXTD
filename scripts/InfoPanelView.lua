@@ -124,7 +124,7 @@ function InfoPanelView:ShowItem(item)
         desc = string.format("ATK: %d  攻速: %.1fs\n攻击同列最前排敌人", item.atk, item.atkSpeed or 1.0)
     elseif item.itemType == Config.ITEM_TYPE.DEFENSE then
         local dur = item.durability or 0
-        desc = string.format("护盾: %d  减伤: %d%%\n只生效五回合 (剩余%d)", item.shield, math.floor((item.damageReduction or 0) * 100), dur)
+        desc = string.format("护盾: %d  减伤: %d%%\n受到攻击时生效一次（剩余%d）", item.shield, math.floor((item.damageReduction or 0) * 100), dur)
     elseif item.itemType == Config.ITEM_TYPE.PILL then
         desc = string.format("回血: %d/秒  持续%d秒\n放置后持续生效", item.healPerSec or item.value or 0, item.duration)
     elseif item.itemType == Config.ITEM_TYPE.TALISMAN then

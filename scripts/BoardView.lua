@@ -221,21 +221,33 @@ local function AddStatusBars(boardPanel, state, m)
         justifyContent = "center",
         pointerEvents = "none",
         children = {
-            UI.Panel {
-                position = "absolute",
-                left = 8 * m.scale,
-                bottom = 8 * m.scale,
-                width = math.max(0, circle.w - 16 * m.scale) * progress,
-                height = 10 * m.scale,
-                borderRadius = 5 * m.scale,
-                backgroundColor = {143, 92, 188, 230},
-                pointerEvents = "none",
-            },
             UI.Label {
                 text = tostring(math.floor(progress * 100)) .. "%",
                 fontSize = math.floor(28 * m.scale),
                 fontColor = {80, 50, 35, 255},
                 fontWeight = "bold",
+                pointerEvents = "none",
+            },
+        },
+    })
+
+    boardPanel:AddChild(UI.Panel {
+        position = "absolute",
+        left = m.originX + circle.x - 14 * m.scale,
+        top = m.originY + circle.y + circle.h + 8 * m.scale,
+        width = circle.w + 28 * m.scale,
+        height = 32 * m.scale,
+        backgroundColor = {0, 0, 0, 0},
+        alignItems = "center",
+        justifyContent = "center",
+        pointerEvents = "none",
+        children = {
+            UI.Label {
+                text = tostring(realm.name),
+                fontSize = math.floor(24 * m.scale),
+                fontColor = {248, 224, 182, 255},
+                fontWeight = "bold",
+                textAlign = "center",
                 pointerEvents = "none",
             },
         },

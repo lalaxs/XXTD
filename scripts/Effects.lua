@@ -32,27 +32,49 @@ function Effects.TriggerMerge(category, idx, quality)
     })
 end
 
+local function HasFieldTarget(state, targetType, col, row)
+    if targetType == "monster" then
+        for _, monster in ipairs(state.monsters or {}) do
+            if monster.col == col and monster.row == row and monster.hp > 0 then
+                return true
+            end
+        end
+    elseif targetType == "chest" then
+        for _, chest in ipairs(state.chests or {}) do
+            if chest.col == col and chest.row == row and chest.hp > 0 then
+                return true
+            end
+        end
+    end
+    return false
+end
+
 function Effects.TriggerAttack(state)
     for _, ev in ipairs(state.lastAttackEvents or {}) do
-        table.insert(attackEffects_, {
-            kind = "player",
-            col = ev.col,
-            slotIdx = ev.slotIdx,
-            targetRow = ev.target and ev.target.row or ev.targetRow,
-            targetType = ev.targetType,
-            startTime = effectTime_,
-            duration = 0.45,
-        })
+        local targetRow = ev.target and ev.target.row or ev.targetRow
+        if HasFieldTarget(state, ev.targetType, ev.col, targetRow) then
+            table.insert(attackEffects_, {
+                kind = "player",
+                col = ev.col,
+                slotIdx = ev.slotIdx,
+                targetRow = targetRow,
+                targetType = ev.targetType,
+                startTime = effectTime_,
+                duration = 0.45,
+            })
+        end
     end
 
     for _, ev in ipairs(state.lastMonsterAttackEvents or {}) do
-        table.insert(attackEffects_, {
-            kind = "monster",
-            col = ev.col,
-            row = ev.row,
-            startTime = effectTime_,
-            duration = 0.5,
-        })
+        if not ev.removedAfterAttack then
+            table.insert(attackEffects_, {
+                kind = "monster",
+                col = ev.col,
+                row = ev.row,
+                startTime = effectTime_,
+                duration = 0.5,
+            })
+        end
     end
 end
 

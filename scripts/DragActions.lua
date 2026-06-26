@@ -82,6 +82,23 @@ function DragActions.CanDrop(state, sourceSlot, targetSlot)
     return true
 end
 
+local function IsWeaponItem(item)
+    return item and (item.itemType == Config.ITEM_TYPE.ATTACK or item.itemType == Config.ITEM_TYPE.TALISMAN)
+end
+
+local function CountWeaponItems(state)
+    local count = 0
+    for i = 1, Config.TOTAL_SLOTS do
+        if IsWeaponItem(state.slots[i]) then
+            count = count + 1
+        end
+    end
+    if IsWeaponItem(state.dropQueue[1]) then
+        count = count + 1
+    end
+    return count
+end
+
 function DragActions.ApplyDrop(state, sourceSlot, targetSlot)
     local fromCat, fromIdx = DragActions.ParseSlot(sourceSlot)
     local toCat, toIdx = DragActions.ParseSlot(targetSlot)
@@ -99,6 +116,14 @@ function DragActions.ApplyDrop(state, sourceSlot, targetSlot)
     if not srcItem then return { changed = false } end
 
     if toCat == "decompose" then
+        if IsWeaponItem(srcItem) and CountWeaponItems(state) <= 1 then
+            return {
+                changed = false,
+                blocked = true,
+                message = "您只剩最后一件武器，无法分解",
+            }
+        end
+
         if fromCat == "deploy" then
             local ok = ItemSystem.DecomposeItem(state, fromIdx)
             return { changed = ok, decomposed = ok }
@@ -136,6 +161,11 @@ function DragActions.ApplyDrop(state, sourceSlot, targetSlot)
         local newItem = ItemSystem.CreateItem(srcItem.itemType, srcItem.quality + 1)
         if newItem.itemType == Config.ITEM_TYPE.ATTACK then
             newItem.atk = srcItem.atk + dstItem.atk
+        elseif newItem.itemType == Config.ITEM_TYPE.DEFENSE then
+            local srcDur = srcItem.durability or srcItem.maxDurability or 5
+            local dstDur = dstItem.durability or dstItem.maxDurability or 5
+            newItem.durability = math.max(srcDur, dstDur)
+            newItem.maxDurability = math.max(newItem.maxDurability or 5, newItem.durability)
         end
         DragActions.SetItemToSlot(state, toCat, toIdx, newItem)
         DragActions.SetItemToSlot(state, fromCat, fromIdx, nil)

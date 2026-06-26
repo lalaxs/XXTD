@@ -38,38 +38,41 @@ function RealmSystem.CheckRealmUp(state)
     while state.realmIndex < #Config.REALMS do
         local nextRealm = Config.REALMS[state.realmIndex + 1]
         if state.exp >= nextRealm.expRequired then
+            local oldHp = state.hp
             state.realmIndex = state.realmIndex + 1
             local realm = Config.REALMS[state.realmIndex]
-            local newMaxHp = RealmSystem.GetMaxHp(state)
-            local hpGain = newMaxHp - state.maxHp
-            state.maxHp = newMaxHp
-            state.hp = math.min(state.hp + hpGain, state.maxHp)
-            print(string.format("[Realm Up] 境界突破: %s! 气血上限=%d", realm.name, state.maxHp))
+            state.maxHp = RealmSystem.GetMaxHp(state)
+            state.hp = math.max(oldHp, state.maxHp)
+            state.lastPillHp = state.hp
+            print(string.format("[Realm Up] 境界突破: %s! 气血=%d/%d", realm.name, state.hp, state.maxHp))
         else
             break
         end
     end
 end
 
--- 死亡处理：修为倒退一级 + 满血恢复（练气期才真正死亡）
+-- 死亡处理：练气期真正死亡；练气以上修为倒退一级并按掉阶后的默认气血复活
 -- 返回 true = 复活成功，false = 真正死亡
 function RealmSystem.HandleDeath(state)
     if state.realmIndex <= 1 then
         -- 已是最低境界（练气期），真正死亡
+        state.hp = 0
         return false
     end
 
     -- 修为倒退至上一等级
     state.realmIndex = state.realmIndex - 1
     local realm = Config.REALMS[state.realmIndex]
-    -- 经验设为当前等级的起始值
+
+    -- 修为回到复活后境界的起始修为
     state.exp = realm.expRequired
 
-    -- 更新最大血量并满血恢复
+    -- 按复活后境界的默认最大气血恢复
     state.maxHp = RealmSystem.GetMaxHp(state)
     state.hp = state.maxHp
+    state.lastPillHp = state.maxHp
 
-    print(string.format("[Death Save] 修为跌落至: %s! 满血恢复 HP=%d", realm.name, state.hp))
+    print(string.format("[Death Save] 气血归零，修为跌落至: %s，复活 HP=%d", realm.name, state.hp))
     return true
 end
 

@@ -147,8 +147,7 @@ function GameState.ExecuteTurn(state)
     
     -- 防止棋盘空场：如果场上无怪物也无宝箱，立即强制刷新一波
     if #state.monsters == 0 and #state.chests == 0 then
-        state.waveTurnProgress = Config.WAVE_INTERVAL  -- 强制触发刷新条件
-        WaveSystem.SpawnWave(state)
+        WaveSystem.ForceSpawnWave(state)
     end
     
     -- Buff 持续回合递减
@@ -221,21 +220,25 @@ function GameState.ExecuteItems(state)
                     frontChest.hp = 0
                     state._chestKilledThisTurn = true
                     local chestQ = frontChest.quality or 1
-                    -- 丹药在HP每降低15%时有50%概率出现
-                    local pillEligible = false
+                    -- 低血量时提高丹药概率：血量低于30%且达到掉血阈值为50%，未达阈值为5%。
+                    -- 非低血量保留原逻辑等效概率：达到掉血阈值时为20%。
                     local hpDrop = state.lastPillHp - state.hp
-                    if hpDrop >= state.maxHp * 0.15 then
-                        if math.random() < 0.5 then
-                            pillEligible = true
-                        end
+                    local lowHp = state.hp < state.maxHp * 0.30
+                    local reachedPillThreshold = hpDrop >= state.maxHp * 0.15
+                    local pillChance = 0
+                    if lowHp then
+                        pillChance = reachedPillThreshold and 0.50 or 0.05
+                    elseif reachedPillThreshold then
+                        pillChance = 0.20
+                    end
+                    if reachedPillThreshold then
                         state.lastPillHp = state.hp  -- 重置基准点
                     end
                     -- 随机道具类型
-                    local roll = math.random()
                     local itemType
-                    if pillEligible and roll < 0.40 then
+                    if math.random() < pillChance then
                         itemType = Config.ITEM_TYPE.PILL
-                    elseif roll < 0.55 then
+                    elseif math.random() < 0.55 then
                         itemType = Config.ITEM_TYPE.ATTACK
                     else
                         itemType = Config.ITEM_TYPE.DEFENSE
@@ -260,15 +263,8 @@ function GameState.ExecuteItems(state)
                 end
                 
             elseif item.itemType == Config.ITEM_TYPE.DEFENSE then
-                -- 防御法宝：提供本回合全局减伤，若配置 slowRate 则额外减速同列怪物
-                local globalReduction = item.globalReduction or 0
-                if globalReduction <= 0 then
-                    globalReduction = item.damageReduction or 0
-                end
-                globalReduction = globalReduction * realm.defMul
-                if globalReduction > 0 then
-                    BuffSystem.AddBuff(state, "defUp", globalReduction, 1)
-                end
+                -- 防御法宝：护盾与减伤在 MonsterSystem.ApplyDamage 中按当前布政区直接结算。
+                -- 此处只处理附加控制效果和耐久消耗，避免通过临时 Buff 造成时序问题。
                 local slowRate = (item.slowRate or 0) * realm.defMul
                 if slowRate > 0 then
                     for _, monster in ipairs(state.monsters) do
@@ -277,12 +273,7 @@ function GameState.ExecuteItems(state)
                         end
                     end
                 end
-                -- 每回合消耗1次耐久，耗尽后消失
-                item.durability = (item.durability or 5) - 1
-                if item.durability <= 0 then
-                    state.slots[slotIdx] = nil
-                    print(string.format("  [Defense] %s 耐久耗尽，消失!", item.name))
-                end
+                -- 耐久消耗在玩家实际受到怪物攻击时结算。
                 
             -- 丹药不在此处处理（已在 ConsumePills 中一次性消耗）
             end

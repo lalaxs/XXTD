@@ -9,6 +9,7 @@ function ChestSystem.MoveChests(state)
             chest.row = chest.row + 1
             if chest.row > Config.FIELD_ROWS then
                 table.insert(toRemove, i)
+                print("  [Chest] 宝箱离场消失，不造成伤害")
             end
         end
     end

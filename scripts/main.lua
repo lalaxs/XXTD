@@ -119,6 +119,9 @@ OnDragEnd = function(itemData, sourceSlot, targetSlot, success)
 
     local result = DragActions.ApplyDrop(state_, sourceSlot, targetSlot)
     if not result.changed then
+        if result.message then
+            UI.Toast.Show(result.message, { duration = 2, variant = "warning", position = "top" })
+        end
         UpdateSlots()
         return
     end
