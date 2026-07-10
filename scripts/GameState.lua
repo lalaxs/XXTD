@@ -225,7 +225,7 @@ function GameState.ExecuteItems(state)
                     local hpDrop = state.lastPillHp - state.hp
                     local lowHp = state.hp < state.maxHp * 0.30
                     local reachedPillThreshold = hpDrop >= state.maxHp * 0.15
-                    local pillChance = 0
+                    local pillChance = 0.0
                     if lowHp then
                         pillChance = reachedPillThreshold and 0.50 or 0.05
                     elseif reachedPillThreshold then
