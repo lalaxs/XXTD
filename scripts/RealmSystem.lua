@@ -1,14 +1,14 @@
 local Config = require("Config")
+local RogueRewardSystem = require("rogue.RogueRewardSystem")
+local WaveSystem = require("WaveSystem")
+
+local Stats = require("combat.Stats")
 
 local RealmSystem = {}
 
 -- 获取天赋加成后的最大血量
 function RealmSystem.GetMaxHp(state)
-    local realm = Config.REALMS[state.realmIndex]
-    local baseHp = realm.maxHp
-    local talentPoints = state.talentPoints or 0
-    local hpBonus = 1.0 + talentPoints * Config.TALENT.PER_POINT_HP
-    return math.floor(baseHp * hpBonus)
+    return Stats.GetMaxHp(state)
 end
 
 -- 获取天赋加成后的经验倍率
@@ -17,75 +17,137 @@ function RealmSystem.GetExpMultiplier(state)
     return 1.0 + talentPoints * Config.TALENT.PER_POINT_EXP
 end
 
+function RealmSystem.CalculateBreakthroughTalentGain(state)
+    return 1
+end
+
+function RealmSystem.GrantBreakthroughTalentPoints(state)
+    local gain = RealmSystem.CalculateBreakthroughTalentGain(state)
+    local before = state.talentPoints or 0
+    local after = math.min(Config.TALENT.MAX_POINTS, before + gain)
+    state.talentPoints = after
+    return after - before
+end
+
 -- 添加经验（含天赋加成和轮回检测）
-function RealmSystem.AddExp(state, amount)
-    -- 天赋点经验加成
+function RealmSystem.AddExp(state, amount, options)
+    options = options or {}
+
     local expMul = RealmSystem.GetExpMultiplier(state)
     local finalAmount = math.floor(amount * expMul)
     state.exp = state.exp + finalAmount
 
-    -- 检查升级
-    RealmSystem.CheckRealmUp(state)
-
-    -- 检查轮回触发：渡劫满级后溢出经验触发
-    if state.realmIndex >= #Config.REALMS and state.exp > Config.REINCARNATION_EXP_THRESHOLD then
-        RealmSystem.TriggerReincarnation(state)
+    if not options.deferCheck then
+        RealmSystem.CheckRealmUp(state)
     end
+
+    local currentRealm = Config.GetRealm(state.realmIndex)
+    if state.realmIndex >= Config.REINCARNATION_REALM_INDEX and state.exp >= (currentRealm.expRequired or 0) then
+        state.canReincarnate = true
+    end
+
+    return finalAmount
 end
 
--- 检查境界提升
+local function ResetRealmBoard(state)
+    WaveSystem.PrepareRealmBreakthroughWave(state)
+    state.shouldSpawnBreakthroughWave = true
+    state.lastDamageDealt = {}
+    state.lastAttackEvents = {}
+    state.lastMonsterAttackEvents = {}
+    state.lastPlayerDamage = 0
+    state.lastPlayerDamageCrit = false
+end
+
+function RealmSystem.MarkAscensionVictory(state, reason, options)
+    options = options or {}
+    state.ascensionAchieved = true
+    state.isVictory = true
+    state.isGameOver = true
+    state.victoryReason = reason or "ascension"
+    state.canReincarnate = true
+    state.canContinueRun = options.canContinue == true
+    state.maxUnlockedDifficulty = math.min(Config.MAX_DIFFICULTY or 5,
+        math.max(state.maxUnlockedDifficulty or 1, (state.difficulty or 1) + 1))
+end
+
 function RealmSystem.CheckRealmUp(state)
-    while state.realmIndex < #Config.REALMS do
-        local nextRealm = Config.REALMS[state.realmIndex + 1]
-        if state.exp >= nextRealm.expRequired then
-            local oldHp = state.hp
+    while state.realmIndex < #Config.REALMS and not state.pendingRogueChoices do
+        local currentRealm = Config.GetRealm(state.realmIndex)
+        if state.exp >= (currentRealm.expRequired or 0) then
             state.realmIndex = state.realmIndex + 1
-            local realm = Config.REALMS[state.realmIndex]
-            state.maxHp = RealmSystem.GetMaxHp(state)
-            state.hp = math.max(oldHp, state.maxHp)
-            state.lastPillHp = state.hp
-            print(string.format("[Realm Up] 境界突破: %s! 气血=%d/%d", realm.name, state.hp, state.maxHp))
+            state.exp = 0
+            local realm = Config.GetRealm(state.realmIndex)
+            local isMajorBreakthrough = Config.IsMajorRealmBreakthrough(state.realmIndex)
+            if isMajorBreakthrough then
+                ResetRealmBoard(state)
+            end
+
+            local talentGain = RealmSystem.GrantBreakthroughTalentPoints(state)
+            Stats.RecalculateMaxHp(state, { fullHeal = true })
+            local bonusHeal = math.floor(state.maxHp * RogueRewardSystem.GetModifierValue(state, "breakthroughHealPct"))
+            if bonusHeal > 0 then
+                Stats.Heal(state, bonusHeal, { allowOverheal = true })
+            end
+
+            state.lastBreakthroughEvent = {
+                realmIndex = state.realmIndex,
+                realmName = realm.name,
+                talentGain = talentGain,
+                totalTalentPoints = state.talentPoints or 0,
+                isMajorBreakthrough = isMajorBreakthrough,
+            }
+
+            if state.realmIndex >= #Config.REALMS then
+                RealmSystem.MarkAscensionVictory(state, "ascension", { canContinue = true })
+                state.pendingRogueEvent = nil
+                state.pendingRogueChoices = nil
+                state.shouldSpawnBreakthroughWave = false
+            elseif isMajorBreakthrough then
+                state.pendingRogueEvent = state.lastBreakthroughEvent
+                RogueRewardSystem.CreateBreakthroughChoices(state)
+            else
+                state.pendingRogueEvent = nil
+                state.pendingRogueChoices = nil
+                state.shouldSpawnBreakthroughWave = false
+            end
+
+            print(string.format("[Realm Up] 境界突破: %s! 气血=%d/%d 天赋点+%d 当前%d%s",
+                realm.name, state.hp, state.maxHp, talentGain, state.talentPoints or 0,
+                isMajorBreakthrough and " 大境界突破" or ""))
         else
             break
         end
     end
 end
 
--- 死亡处理：练气期真正死亡；练气以上修为倒退一级并按掉阶后的默认气血复活
--- 返回 true = 复活成功，false = 真正死亡
+-- 死亡处理：飞升前失败直接结束本轮；飞升境界失败按胜利结算并要求进入轮回
+-- 返回 false = 本轮已结束
 function RealmSystem.HandleDeath(state)
-    if state.realmIndex <= 1 then
-        -- 已是最低境界（练气期），真正死亡
-        state.hp = 0
-        return false
+    state.hp = 0
+    if state.realmIndex >= #Config.REALMS or state.ascensionAchieved then
+        RealmSystem.MarkAscensionVictory(state, "ascension_failed", { canContinue = false })
+        print("[Victory] 飞升后气血归零，天命已成，进入轮回结算")
+    else
+        state.isVictory = false
+        state.isGameOver = true
+        state.victoryReason = "failed"
+        state.canContinueRun = false
+        print("[GameOver] 气血归零，本轮直接重开")
     end
-
-    -- 修为倒退至上一等级
-    state.realmIndex = state.realmIndex - 1
-    local realm = Config.REALMS[state.realmIndex]
-
-    -- 修为回到复活后境界的起始修为
-    state.exp = realm.expRequired
-
-    -- 按复活后境界的默认最大气血恢复
-    state.maxHp = RealmSystem.GetMaxHp(state)
-    state.hp = state.maxHp
-    state.lastPillHp = state.maxHp
-
-    print(string.format("[Death Save] 气血归零，修为跌落至: %s，复活 HP=%d", realm.name, state.hp))
-    return true
+    return false
 end
 
 -- 轮回系统
 function RealmSystem.TriggerReincarnation(state)
-    -- 获得1天赋点（上限100）
+    -- 获得1天赋点（受当前天赋点上限限制）
     state.talentPoints = state.talentPoints or 0
     if state.talentPoints < Config.TALENT.MAX_POINTS then
         state.talentPoints = state.talentPoints + 1
         print(string.format("[Reincarnation] 获得天赋点! 当前: %d/%d",
             state.talentPoints, Config.TALENT.MAX_POINTS))
     else
-        print("[Reincarnation] 天赋点已满100，不再增加")
+        print("[Reincarnation] 天赋点已满，不再增加")
     end
 
     -- 重置修为到1阶练气期，清空累计经验
@@ -95,8 +157,16 @@ function RealmSystem.TriggerReincarnation(state)
     -- 重置波次、场上怪物、已放置道具
     state.waveCount = 0
     state.waveTurnProgress = 0
+    state.realmWaveIndex = 0
+    state.pendingWaveQueue = {}
+    state.pendingWaveIndex = nil
+    state.pendingWaveExp = 0
+    state.forceSpawnNextTurn = false
     state.monsters = {}
-    state.chests = {}
+    state.fieldRewards = {}
+    state.fieldRewardTurnsSinceSpawn = 0
+    state.fieldRewardRecentCols = {}
+    state.recentSpawnColumns = {}
 
     -- 清空布政区已放置道具
     for i = 1, Config.TOTAL_SLOTS do
@@ -107,12 +177,19 @@ function RealmSystem.TriggerReincarnation(state)
     -- dropQueue 不清空
 
     -- 重置血量为新境界满血（含天赋加成）
-    state.maxHp = RealmSystem.GetMaxHp(state)
-    state.hp = state.maxHp
+    Stats.RecalculateMaxHp(state, { fullHeal = true })
 
     -- 重置辅助计数器
     state.lastPillHp = state.maxHp
     state.buffs = {}
+    state.deathSaveRatio = 0
+    state.deathSaveUsed = false
+    state.modifiers = {}
+    state.selectedRogueRewards = {}
+    state.rogueRewardHistory = {}
+    state.pendingRogueChoices = nil
+    state.pendingRogueEvent = nil
+    state.lastBreakthroughEvent = nil
     state.turn = 0
 
     -- 标记轮回事件（UI可读取显示）

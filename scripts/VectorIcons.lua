@@ -331,14 +331,14 @@ function VectorIcons.DrawRangedMonster(vg, cx, cy, size, quality)
 end
 
 -- ============================================================================
--- 宝箱图标
+-- 场上奖励图标
 -- ============================================================================
 
-function VectorIcons.DrawChest(vg, cx, cy, size, quality)
+function VectorIcons.DrawFieldReward(vg, cx, cy, size, quality)
     local r, g, b = QualityColor(quality)
     local s = size * 0.35
 
-    -- 箱体（下半部分）
+    -- 奖励底座
     nvgBeginPath(vg)
     nvgRoundedRect(vg, cx - s * 0.65, cy - s * 0.1, s * 1.3, s * 0.8, 4)
     nvgFillColor(vg, nvgRGBA(120, 80, 40, 250))
@@ -347,7 +347,7 @@ function VectorIcons.DrawChest(vg, cx, cy, size, quality)
     nvgStrokeWidth(vg, 2)
     nvgStroke(vg)
 
-    -- 箱盖（上半部分，弧形）
+    -- 奖励光罩
     nvgBeginPath(vg)
     nvgMoveTo(vg, cx - s * 0.65, cy - s * 0.1)
     nvgLineTo(vg, cx - s * 0.65, cy - s * 0.4)
@@ -366,7 +366,7 @@ function VectorIcons.DrawChest(vg, cx, cy, size, quality)
     nvgFillColor(vg, nvgRGBA(r, g, b, 200))
     nvgFill(vg)
 
-    -- 锁扣
+    -- 奖励核心
     nvgBeginPath(vg)
     nvgRoundedRect(vg, cx - s * 0.12, cy - s * 0.3, s * 0.24, s * 0.3, 3)
     nvgFillColor(vg, nvgRGBA(r, g, b, 255))

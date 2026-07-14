@@ -1,5 +1,5 @@
 local Config = require("Config")
-local BoardView = require("BoardView")
+local BoardLayout = require("BoardLayout")
 
 local Effects = {}
 
@@ -39,9 +39,9 @@ local function HasFieldTarget(state, targetType, col, row)
                 return true
             end
         end
-    elseif targetType == "chest" then
-        for _, chest in ipairs(state.chests or {}) do
-            if chest.col == col and chest.row == row and chest.hp > 0 then
+    elseif targetType == "fieldReward" then
+        for _, fieldReward in ipairs(state.fieldRewards or {}) do
+            if fieldReward.col == col and fieldReward.row == row and fieldReward.hp > 0 then
                 return true
             end
         end
@@ -88,7 +88,7 @@ end
 
 local function GetBoardMetrics()
     if screenW_ <= 0 or screenH_ <= 0 then return nil end
-    return BoardView.CalcMetrics(screenW_, screenH_)
+    return BoardLayout.CalcMetrics(screenW_, screenH_)
 end
 
 local function DesignRectPoint(board, rect)
@@ -102,7 +102,7 @@ local function DeployItemPoint(board, slotIdx)
     if not slotIdx or slotIdx < 1 or slotIdx > Config.TOTAL_SLOTS then return nil end
     local row = math.ceil(slotIdx / Config.GRID_COLS)
     local col = ((slotIdx - 1) % Config.GRID_COLS) + 1
-    local cell = BoardView.CellRect(board, row, col, true)
+    local cell = BoardLayout.CellRect(board, row, col, true)
     return cell.x + cell.w * 0.5,
         cell.y + cell.h * 0.5,
         cell.w,
@@ -115,7 +115,7 @@ end
 
 local function FieldTargetPoint(board, col, row)
     row = math.min(Config.FIELD_ROWS, math.max(1, row or 1))
-    local cell = BoardView.CellRect(board, row, col, false)
+    local cell = BoardLayout.CellRect(board, row, col, false)
     return cell.x + cell.w * 0.5,
         cell.y + cell.h * 0.55,
         cell.w,
@@ -267,8 +267,8 @@ local function DrawAttackWaveEffects()
     local board = GetBoardMetrics()
     if not board then return end
 
-    local firstCell = BoardView.CellRect(board, 1, 1, false)
-    local lastCell = BoardView.CellRect(board, Config.FIELD_ROWS, Config.GRID_COLS, false)
+    local firstCell = BoardLayout.CellRect(board, 1, 1, false)
+    local lastCell = BoardLayout.CellRect(board, Config.FIELD_ROWS, Config.GRID_COLS, false)
     local fieldBottom = lastCell.y + lastCell.h
 
     for _, eff in ipairs(attackEffects_) do

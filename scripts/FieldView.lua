@@ -57,6 +57,10 @@ local RANGED_IMAGES = {
 }
 
 local function GetMonsterImage(monster)
+    if monster.asset and monster.asset ~= "" then
+        return monster.asset
+    end
+
     local q = monster.quality or 1
     if monster.monsterType == Config.MONSTER_TYPE.MELEE then
         return MELEE_IMAGES[q] or MELEE_IMAGES[1]
@@ -115,8 +119,8 @@ local function CreateMonsterVisual(monster, cellSize)
     }
 end
 
---- 创建宝箱视觉面板
-local function CreateChestVisual(quality, cellSize)
+--- 创建场上奖励视觉面板
+local function CreateFieldRewardVisual(quality, cellSize)
     local qColor = Config.QUALITY[quality] and Config.QUALITY[quality].color
         or {180, 150, 100, 255}
 
@@ -139,7 +143,7 @@ local function CreateChestVisual(quality, cellSize)
                 pointerEvents = "none",
                 children = {
                     UI.Label {
-                        text = "宝",
+                        text = "奖",
                         fontSize = math.floor(cellSize * 0.2),
                         fontColor = qColor,
                         fontWeight = "bold",
@@ -208,12 +212,12 @@ function FieldView.Update(fieldPanel, state, callbacks)
         end
     end
 
-    -- 宝箱
-    for _, chest in ipairs(state.chests) do
-        if chest.row >= 1 and chest.row <= Config.FIELD_ROWS then
-            local x = offsetX + (chest.col - 1) * cellSize
-            local y = offsetY + (chest.row - 1) * cellSize
-            local chestQ = chest.quality or 1
+    -- 场上奖励
+    for _, fieldReward in ipairs(state.fieldRewards) do
+        if fieldReward.row >= 1 and fieldReward.row <= Config.FIELD_ROWS then
+            local x = offsetX + (fieldReward.col - 1) * cellSize
+            local y = offsetY + (fieldReward.row - 1) * cellSize
+            local rewardQuality = fieldReward.quality or 1
             fieldPanel:AddChild(UI.Panel {
                 position = "absolute",
                 left = x,
@@ -222,12 +226,12 @@ function FieldView.Update(fieldPanel, state, callbacks)
                 height = cellSize,
                 pointerEvents = "auto",
                 onClick = function()
-                    if callbacks and callbacks.onChestClick then
-                        callbacks.onChestClick(chestQ)
+                    if callbacks and callbacks.onFieldRewardClick then
+                        callbacks.onFieldRewardClick(fieldReward)
                     end
                 end,
                 children = {
-                    CreateChestVisual(chestQ, cellSize),
+                    CreateFieldRewardVisual(rewardQuality, cellSize),
                 },
             })
         end

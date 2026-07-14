@@ -45,9 +45,9 @@ local RANGED_ICONS = {
 }
 
 -- ============================================================================
--- 宝箱矢量图标
+-- 场上奖励矢量图标
 -- ============================================================================
-local CHEST_ICONS = {
+local FIELD_REWARD_ICONS = {
     { emoji = "📦", color = {180, 150, 100, 255} },  -- 1阶
     { emoji = "🎁", color = {100, 200, 120, 255} },  -- 2阶
     { emoji = "💰", color = {80, 150, 255, 255} },   -- 3阶
@@ -96,9 +96,9 @@ function Assets.GetMonsterIcon(monster)
     end
 end
 
---- 获取宝箱图标数据
-function Assets.GetChestIcon(quality)
-    return CHEST_ICONS[quality] or CHEST_ICONS[1]
+--- 获取场上奖励图标数据
+function Assets.GetFieldRewardIcon(quality)
+    return FIELD_REWARD_ICONS[quality] or FIELD_REWARD_ICONS[1]
 end
 
 return Assets

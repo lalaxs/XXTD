@@ -4,11 +4,13 @@
 local UI = require("urhox-libs/UI")
 local Config = require("Config")
 local SlotAdapter = require("SlotAdapter")
+local BoardLayout = require("BoardLayout")
+local StatusPresenter = require("views.StatusPresenter")
 
 local BoardView = {}
 
-local DESIGN_W = 1080
-local DESIGN_H = 2284
+local DESIGN_W = BoardLayout.DESIGN_W
+local DESIGN_H = BoardLayout.DESIGN_H
 
 local UI_ASSETS = {
     bg = "image/bg.png",
@@ -48,6 +50,10 @@ local function Clamp01(value)
 end
 
 local function GetMonsterImage(monster)
+    if monster.asset and monster.asset ~= "" then
+        return monster.asset
+    end
+
     local q = monster.quality or 1
     if monster.monsterType == Config.MONSTER_TYPE.MELEE then
         return MELEE_IMAGES[q] or MELEE_IMAGES[1]
@@ -56,49 +62,11 @@ local function GetMonsterImage(monster)
 end
 
 local function D(layout, scale)
-    return {
-        x = layout.x * scale,
-        y = layout.y * scale,
-        w = layout.w * scale,
-        h = layout.h * scale,
-    }
+    return BoardLayout.ScaleRect(layout, scale)
 end
 
 function BoardView.CalcMetrics(panelW, panelH)
-    -- 以 1080x2284 为设计稿做 CONTAIN 等比适配：
-    -- 手机、平板、电脑统一使用同一套缩放和居中偏移，宽屏两侧留空但不拉伸变形。
-    local scale = math.min(panelW / DESIGN_W, panelH / DESIGN_H)
-    local pageW = DESIGN_W * scale
-    local pageH = DESIGN_H * scale
-    local originX = (panelW - pageW) / 2
-    local originY = (panelH - pageH) / 2
-
-    local gridX = 46
-    local fieldY = 172
-    local cellW = 197
-    local fieldCellH = 190
-    local deployY = 1590
-    local deployCellH = 178
-
-    return {
-        scale = scale,
-        pageW = pageW,
-        pageH = pageH,
-        originX = originX,
-        originY = originY,
-        gridX = gridX,
-        fieldY = fieldY,
-        deployY = deployY,
-        cellW = cellW,
-        fieldCellH = fieldCellH,
-        deployCellH = deployCellH,
-        hpBar = { x = 70, y = 1522, w = 940, h = 40 },
-        expCircle = { x = 690, y = 2054, w = 150, h = 150 },
-        decomposeArea = { x = 28, y = 2058, w = 376, h = 148 },
-        decomposeIcon = { x = 142, y = 2038, w = 128, h = 136 },
-        storage = { x = 430, y = 2115, w = 220, h = 82 },
-        menu = { x = 887, y = 2058, w = 118, h = 118 },
-    }
+    return BoardLayout.CalcMetrics(panelW, panelH)
 end
 
 local function AddImage(parent, m, designRect, image, fit, extra)
@@ -121,29 +89,167 @@ local function AddImage(parent, m, designRect, image, fit, extra)
 end
 
 local function CellRect(m, row, col, isDeploy)
-    local x = m.gridX + (col - 1) * m.cellW
-    local y
-    local h
-    if isDeploy then
-        y = m.deployY + (row - 1) * m.deployCellH
-        h = m.deployCellH
-    else
-        y = m.fieldY + (row - 1) * m.fieldCellH
-        h = m.fieldCellH
-    end
-    local rect = D({ x = x, y = y, w = m.cellW, h = h }, m.scale)
-    return {
-        x = m.originX + rect.x,
-        y = m.originY + rect.y,
-        w = rect.w,
-        h = rect.h,
-    }
+    return BoardLayout.CellRect(m, row, col, isDeploy)
 end
 
 BoardView.CellRect = CellRect
 
+local function GetQualityColor(item)
+    local quality = item and item.quality or 1
+    return Config.QUALITY[quality] and Config.QUALITY[quality].color or {200, 200, 200, 255}
+end
+
+local function FormatIntegerStat(value)
+    local n = tonumber(value)
+    if not n or n <= 0 then return nil end
+    return tostring(math.floor(n + 0.5))
+end
+
+local function FormatPercentStat(value)
+    local n = tonumber(value)
+    if not n or n <= 0 then return nil end
+    return tostring(math.floor(n * 100 + 0.5)) .. "%"
+end
+
+local function GetPillStatText(item)
+    local effect = item.pillEffect
+    if effect then
+        if effect.type == "heal" or effect.type == "shield" then
+            return FormatIntegerStat(effect.value or item.power)
+        elseif effect.type == "attackBuff" or effect.type == "deathSave" then
+            return FormatPercentStat(effect.value or item.power)
+        elseif effect.type == "cleanse" then
+            return FormatIntegerStat(effect.cleanseCount or effect.immunityTurns)
+        end
+    end
+
+    local totalHeal = (item.healPerSec or item.value or item.power or 0) * (item.duration or 1)
+    return FormatIntegerStat(totalHeal)
+end
+
+local function GetTalismanStatText(item)
+    local effect = item.talismanEffect
+    if effect then
+        if effect.type == "damage" then
+            return FormatIntegerStat(effect.value or item.aoeDmg or item.power)
+        elseif effect.type == "root" then
+            return FormatIntegerStat(effect.turns or item.controlDuration)
+        elseif effect.type == "armorBreak" or effect.type == "attackDown" or effect.type == "vulnerable" then
+            return FormatPercentStat(effect.value or item.power)
+        end
+    end
+
+    return FormatIntegerStat(item.aoeDmg or item.atk or item.damage or item.power)
+end
+
+local function GetAttackDebuffValue(state)
+    local debuff = state and state.playerDebuffs and state.playerDebuffs.attackDown
+    if not debuff or (debuff.turns or 0) <= 0 then return 0 end
+    return math.min(0.20, debuff.value or 0)
+end
+
+local function GetAttackSlotDisplayStat(state, item, slotIdx)
+    if (state.itemSilenceTurns or 0) > 0 then
+        return "封"
+    end
+    local sealed = state.sealedSlots and state.sealedSlots[slotIdx]
+    if sealed and sealed > 0 then
+        return "封"
+    end
+
+    local value = item.atk or item.power or 0
+    local attackDown = GetAttackDebuffValue(state)
+    if attackDown > 0 then
+        value = value * (1 - attackDown)
+    end
+    local shockedTurns = state.shockedSlots and state.shockedSlots[slotIdx]
+    if shockedTurns and shockedTurns > 0 then
+        local reduction = state.shockedSlotReduction and state.shockedSlotReduction[slotIdx] or 0
+        value = value * math.max(0, 1 - reduction)
+    end
+    return FormatIntegerStat(value)
+end
+
+local function GetDeployStatText(item, state, slotIdx)
+    if not item then return nil end
+    if item.itemType == Config.ITEM_TYPE.ATTACK then
+        return GetAttackSlotDisplayStat(state or {}, item, slotIdx)
+    elseif item.itemType == Config.ITEM_TYPE.DEFENSE then
+        return FormatIntegerStat(item.defense or item.shield or item.power)
+    elseif item.itemType == Config.ITEM_TYPE.PILL then
+        return GetPillStatText(item)
+    elseif item.itemType == Config.ITEM_TYPE.TALISMAN then
+        return GetTalismanStatText(item)
+    end
+    return FormatIntegerStat(item.damage or item.value or item.power)
+end
+
+local function AddDeployItemVisual(boardPanel, item, r, scale)
+    boardPanel:AddChild(UI.Panel {
+        position = "absolute",
+        left = r.x,
+        top = r.y,
+        width = r.w,
+        height = r.h,
+        pointerEvents = "none",
+        children = {
+            UI.Panel {
+                position = "absolute",
+                left = 0,
+                top = 0,
+                width = r.w,
+                height = r.h,
+                backgroundImage = SlotAdapter.GetItemImage(item),
+                backgroundFit = "contain",
+                pointerEvents = "none",
+            },
+        },
+    })
+end
+
+local function AddDeployStatLabel(boardPanel, item, r, scale, state, slotIdx)
+    local statText = GetDeployStatText(item, state, slotIdx)
+    if not statText then return end
+
+    local qColor = GetQualityColor(item)
+    local labelH = 28 * scale
+    local labelW = r.w * 0.58
+    boardPanel:AddChild(UI.Panel {
+        position = "absolute",
+        left = math.floor(r.x + (r.w - labelW) * 0.5 + 0.5),
+        top = math.floor(r.y + r.h - labelH + 0.5),
+        width = math.floor(labelW + 0.5),
+        height = math.floor(labelH + 0.5),
+        borderRadius = math.floor(9 * scale + 0.5),
+        borderWidth = 0,
+        backgroundColor = {qColor[1], qColor[2], qColor[3], 255},
+        alignItems = "center",
+        justifyContent = "center",
+        pointerEvents = "none",
+        children = {
+            UI.Label {
+                text = statText,
+                width = "100%",
+                height = "100%",
+                fontSize = math.floor(26 * scale),
+                fontColor = {58, 32, 18, 255},
+                fontWeight = "bold",
+                textAlign = "center",
+                pointerEvents = "none",
+            },
+        },
+    })
+end
+
 local function AddStatusBars(boardPanel, state, m)
-    local hpRatio = Clamp01(state.hp / math.max(1, state.maxHp))
+    local maxHp = math.max(1, state.maxHp)
+    local hpRatio = Clamp01(state.hp / maxHp)
+    local shieldValue = StatusPresenter.GetShieldValue(state)
+    local shieldRatio = Clamp01(shieldValue / maxHp)
+    local hpText = tostring(state.hp)
+    if shieldValue > 0 then
+        hpText = hpText .. " +" .. tostring(shieldValue)
+    end
     local hp = D(m.hpBar, m.scale)
     boardPanel:AddChild(UI.Panel {
         position = "absolute",
@@ -179,6 +285,19 @@ local function AddStatusBars(boardPanel, state, m)
             UI.Panel {
                 position = "absolute",
                 left = 0,
+                top = math.floor(hp.h * 0.08 + 0.5),
+                width = tostring(math.floor(shieldRatio * 100)) .. "%",
+                height = math.floor(hp.h * 0.28 + 0.5),
+                backgroundColor = {78, 185, 232, 230},
+                borderRadius = math.floor(10 * m.scale + 0.5),
+                borderWidth = shieldValue > 0 and math.max(1, math.floor(2 * m.scale + 0.5)) or 0,
+                borderColor = {210, 248, 255, 220},
+                visible = shieldValue > 0,
+                pointerEvents = "none",
+            },
+            UI.Panel {
+                position = "absolute",
+                left = 0,
                 top = 0,
                 width = hp.w,
                 height = hp.h,
@@ -187,7 +306,7 @@ local function AddStatusBars(boardPanel, state, m)
                 pointerEvents = "none",
                 children = {
                     UI.Label {
-                        text = tostring(state.hp),
+                        text = hpText,
                         fontSize = math.floor(26 * m.scale),
                         fontColor = {245, 210, 185, 255},
                         fontWeight = "bold",
@@ -199,13 +318,9 @@ local function AddStatusBars(boardPanel, state, m)
         },
     })
 
-    local realm = Config.REALMS[state.realmIndex]
-    local nextExp = 9999
-    if state.realmIndex < #Config.REALMS then
-        nextExp = Config.REALMS[state.realmIndex + 1].expRequired
-    end
-    local base = realm.expRequired
-    local progress = Clamp01((state.exp - base) / math.max(1, nextExp - base))
+    local realm = Config.GetRealm(state.realmIndex)
+    local requiredExp = realm.expRequired or 1
+    local progress = Clamp01(state.exp / math.max(1, requiredExp))
     local circle = D(m.expCircle, m.scale)
     boardPanel:AddChild(UI.Panel {
         position = "absolute",
@@ -268,6 +383,35 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
     AddImage(boardPanel, m, m.decomposeIcon, UI_ASSETS.decomposeIcon, "contain")
     AddImage(boardPanel, m, m.storage, UI_ASSETS.storage, "stretch")
     AddImage(boardPanel, m, m.menu, UI_ASSETS.menu, "contain")
+    boardPanel:AddChild(UI.Panel {
+        position = "absolute",
+        left = 0,
+        top = 0,
+        width = layout.w,
+        height = layout.h,
+        backgroundColor = {0, 0, 0, 0},
+        pointerEvents = "auto",
+        onClick = function()
+            if callbacks and callbacks.onBlankClick then
+                callbacks.onBlankClick()
+            end
+        end,
+    })
+    local menuRect = D(m.menu, m.scale)
+    boardPanel:AddChild(UI.Panel {
+        position = "absolute",
+        left = m.originX + menuRect.x,
+        top = m.originY + menuRect.y,
+        width = menuRect.w,
+        height = menuRect.h,
+        backgroundColor = {0, 0, 0, 0},
+        pointerEvents = "auto",
+        onTap = function()
+            if callbacks and callbacks.onMainMenuClick then
+                callbacks.onMainMenuClick()
+            end
+        end,
+    })
 
     for _, monster in ipairs(state.monsters) do
         if monster.row >= 1 and monster.row <= Config.FIELD_ROWS and monster.hp > 0 then
@@ -330,6 +474,26 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
                                     },
                                 },
                             },
+                            UI.Panel {
+                                position = "absolute",
+                                left = 0,
+                                top = -6 * m.scale,
+                                width = "100%",
+                                height = 30 * m.scale,
+                                alignItems = "center",
+                                justifyContent = "center",
+                                pointerEvents = "none",
+                                children = {
+                                    UI.Label {
+                                        text = tostring(math.max(0, math.floor(monster.hp + 0.5))),
+                                        fontSize = math.floor(26 * m.scale),
+                                        fontColor = {255, 255, 255, 255},
+                                        fontWeight = "bold",
+                                        textAlign = "center",
+                                        pointerEvents = "none",
+                                    },
+                                },
+                            },
                         },
                     },
                 },
@@ -337,47 +501,50 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
         end
     end
 
-    for _, chest in ipairs(state.chests) do
-        if chest.row >= 1 and chest.row <= Config.FIELD_ROWS then
-            local r = CellRect(m, chest.row, chest.col, false)
-            local chestQ = chest.quality or 1
-            local qColor = Config.QUALITY[chestQ] and Config.QUALITY[chestQ].color or {180, 150, 100, 255}
+    for _, fieldReward in ipairs(state.fieldRewards) do
+        if fieldReward.row >= 1 and fieldReward.row <= Config.FIELD_ROWS then
+            local r = CellRect(m, fieldReward.row, fieldReward.col, false)
+            local rewardItem = fieldReward.rewardItem
+            local rewardRef = fieldReward
+            if rewardItem then
+                AddDeployItemVisual(boardPanel, rewardItem, r, m.scale)
+                AddDeployStatLabel(boardPanel, rewardItem, r, m.scale)
+            else
+                local rewardQuality = fieldReward.quality or 1
+                local qColor = Config.QUALITY[rewardQuality] and Config.QUALITY[rewardQuality].color or {180, 150, 100, 255}
+                boardPanel:AddChild(UI.Panel {
+                    position = "absolute",
+                    left = r.x,
+                    top = r.y,
+                    width = r.w,
+                    height = r.h,
+                    alignItems = "center",
+                    justifyContent = "center",
+                    pointerEvents = "none",
+                    children = {
+                        UI.Label {
+                            text = "奖",
+                            fontSize = math.floor(r.w * 0.2),
+                            fontColor = qColor,
+                            fontWeight = "bold",
+                            pointerEvents = "none",
+                        },
+                    },
+                })
+            end
             boardPanel:AddChild(UI.Panel {
                 position = "absolute",
                 left = r.x,
                 top = r.y,
                 width = r.w,
                 height = r.h,
-                alignItems = "center",
-                justifyContent = "center",
+                backgroundColor = {0, 0, 0, 0},
                 pointerEvents = "auto",
                 onClick = function()
-                    if callbacks and callbacks.onChestClick then
-                        callbacks.onChestClick(chestQ)
+                    if callbacks and callbacks.onFieldRewardClick then
+                        callbacks.onFieldRewardClick(rewardRef)
                     end
                 end,
-                children = {
-                    UI.Panel {
-                        width = r.w * 0.48,
-                        height = r.h * 0.38,
-                        backgroundColor = {120, 85, 45, 240},
-                        borderRadius = 8 * m.scale,
-                        borderWidth = 3 * m.scale,
-                        borderColor = qColor,
-                        alignItems = "center",
-                        justifyContent = "center",
-                        pointerEvents = "none",
-                        children = {
-                            UI.Label {
-                                text = "宝",
-                                fontSize = math.floor(r.w * 0.2),
-                                fontColor = qColor,
-                                fontWeight = "bold",
-                                pointerEvents = "none",
-                            },
-                        },
-                    },
-                },
             })
         end
     end
@@ -388,16 +555,8 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
         local col = ((i - 1) % Config.GRID_COLS) + 1
         local r = CellRect(m, row, col, true)
         if item then
-            boardPanel:AddChild(UI.Panel {
-                position = "absolute",
-                left = r.x,
-                top = r.y,
-                width = r.w,
-                height = r.h,
-                backgroundImage = SlotAdapter.GetItemImage(item),
-                backgroundFit = "contain",
-                pointerEvents = "none",
-            })
+            AddDeployItemVisual(boardPanel, item, r, m.scale)
+            AddDeployStatLabel(boardPanel, item, r, m.scale, state, i)
         end
     end
 

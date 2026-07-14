@@ -1,6 +1,5 @@
 local Config = require("Config")
 local ItemSystem = require("ItemSystem")
-local BuffSystem = require("BuffSystem")
 
 local DragActions = {}
 
@@ -50,15 +49,21 @@ function DragActions.SetItemToSlot(state, category, idx, item)
     end
 end
 
+local function IsDecomposableItem(item)
+    local category = ItemSystem.GetCategory(item)
+    return category == Config.ITEM_CATEGORY.WEAPON or category == Config.ITEM_CATEGORY.ARMOR
+end
+
 function DragActions.CanDrop(state, sourceSlot, targetSlot)
     if not sourceSlot or not targetSlot then return false end
 
-    local srcCat = sourceSlot:GetSlotCategory()
+    local srcCat, srcIdx = DragActions.ParseSlot(sourceSlot)
     local dstCat, dstIdx = DragActions.ParseSlot(targetSlot)
-    if not dstCat then return false end
+    if not srcCat or not dstCat then return false end
 
     if dstCat == "decompose" then
-        return srcCat == "deploy" or srcCat == "storage"
+        local srcItem = DragActions.GetItemFromSlot(state, srcCat, srcIdx)
+        return IsDecomposableItem(srcItem)
     end
 
     if srcCat == "decompose" then
@@ -74,16 +79,14 @@ function DragActions.CanDrop(state, sourceSlot, targetSlot)
         local dstItem = state.slots[dstIdx]
         if not srcItem then return false end
         if not dstItem then return true end
-        return srcItem.itemType == dstItem.itemType
-            and srcItem.quality == dstItem.quality
-            and srcItem.quality < Config.MAX_QUALITY
+        return ItemSystem.CanMerge(srcItem, dstItem)
     end
 
     return true
 end
 
 local function IsWeaponItem(item)
-    return item and (item.itemType == Config.ITEM_TYPE.ATTACK or item.itemType == Config.ITEM_TYPE.TALISMAN)
+    return ItemSystem.GetCategory(item) == Config.ITEM_CATEGORY.WEAPON
 end
 
 local function CountWeaponItems(state)
@@ -116,6 +119,14 @@ function DragActions.ApplyDrop(state, sourceSlot, targetSlot)
     if not srcItem then return { changed = false } end
 
     if toCat == "decompose" then
+        if not IsDecomposableItem(srcItem) then
+            return {
+                changed = false,
+                blocked = true,
+                message = "消耗品无法分解，请点击使用",
+            }
+        end
+
         if IsWeaponItem(srcItem) and CountWeaponItems(state) <= 1 then
             return {
                 changed = false,
@@ -130,7 +141,7 @@ function DragActions.ApplyDrop(state, sourceSlot, targetSlot)
         elseif fromCat == "storage" then
             local expGain = Config.DECOMPOSE_EXP[srcItem.quality] or 2
             local RealmSystem = require("RealmSystem")
-            RealmSystem.AddExp(state, expGain)
+            RealmSystem.AddExp(state, expGain, { deferCheck = true })
             DragActions.SetItemToSlot(state, fromCat, fromIdx, nil)
             print(string.format("[Decompose] 分解 %s → +%d修为", srcItem.name, expGain))
             return { changed = true, decomposed = true }
@@ -147,25 +158,16 @@ function DragActions.ApplyDrop(state, sourceSlot, targetSlot)
     end
 
     if fromCat == "storage" and toCat == "deploy" and dstItem then
-        local canMerge = srcItem.itemType == dstItem.itemType
-            and srcItem.quality == dstItem.quality
-            and srcItem.quality < Config.MAX_QUALITY
+        local canMerge = ItemSystem.CanMerge(srcItem, dstItem)
         if not canMerge then
             return { changed = false }
         end
     end
 
-    if dstItem and srcItem.itemType == dstItem.itemType
-       and srcItem.quality == dstItem.quality
-       and srcItem.quality < Config.MAX_QUALITY then
-        local newItem = ItemSystem.CreateItem(srcItem.itemType, srcItem.quality + 1)
-        if newItem.itemType == Config.ITEM_TYPE.ATTACK then
-            newItem.atk = srcItem.atk + dstItem.atk
-        elseif newItem.itemType == Config.ITEM_TYPE.DEFENSE then
-            local srcDur = srcItem.durability or srcItem.maxDurability or 5
-            local dstDur = dstItem.durability or dstItem.maxDurability or 5
-            newItem.durability = math.max(srcDur, dstDur)
-            newItem.maxDurability = math.max(newItem.maxDurability or 5, newItem.durability)
+    if dstItem and ItemSystem.CanMerge(srcItem, dstItem) then
+        local newItem = ItemSystem.MergeItems(state, srcItem, dstItem)
+        if not newItem then
+            return { changed = false }
         end
         DragActions.SetItemToSlot(state, toCat, toIdx, newItem)
         DragActions.SetItemToSlot(state, fromCat, fromIdx, nil)

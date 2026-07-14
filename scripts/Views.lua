@@ -202,7 +202,29 @@ function Views.CreateStoragePanel(dragContext)
     }, slots
 end
 
-function Views.CreateGameOverPanel(onRestart)
+function Views.CreateGameOverPanel(callbacks)
+    callbacks = callbacks or {}
+
+    local function MakeButton(id, text, bgColor, pressColor, onClick)
+        return UI.Button {
+            id = id,
+            text = text,
+            visible = false,
+            width = "100%",
+            height = 44,
+            fontSize = 16,
+            fontWeight = "bold",
+            borderRadius = 12,
+            borderWidth = 2.5,
+            borderColor = STYLE.GAMEOVER_BTN_BORDER,
+            backgroundColor = bgColor,
+            pressedBackgroundColor = pressColor,
+            textColor = STYLE.TEXT_WHITE,
+            marginTop = 6,
+            onClick = onClick,
+        }
+    end
+
     return UI.Panel {
         id = "gameOverPanel",
         visible = false,
@@ -213,21 +235,33 @@ function Views.CreateGameOverPanel(onRestart)
         alignItems = "center",
         children = {
             UI.Panel {
-                width = "78%",
-                maxWidth = 300,
+                width = "84%",
+                maxWidth = 360,
                 padding = 24,
                 gap = 12,
                 backgroundColor = STYLE.GAMEOVER_BG,
                 borderRadius = 20,
                 borderWidth = 3,
                 borderColor = STYLE.GAMEOVER_BORDER,
+                boxShadow = {
+                    { x = 0, y = 4, blur = 16, spread = 0, color = {0, 0, 0, 55} },
+                },
                 alignItems = "center",
                 children = {
                     UI.Label {
+                        id = "goTitle",
                         text = "道陨身殒",
-                        fontSize = 22,
+                        fontSize = 24,
                         fontColor = STYLE.GAMEOVER_TITLE,
                         fontWeight = "bold",
+                    },
+                    UI.Label {
+                        id = "goDesc",
+                        text = "本轮修行失败，将直接重开。",
+                        width = "100%",
+                        fontSize = 14,
+                        fontColor = STYLE.TEXT_DARK,
+                        textAlign = "center",
                     },
                     UI.Label {
                         id = "goScore",
@@ -241,20 +275,15 @@ function Views.CreateGameOverPanel(onRestart)
                         fontSize = 13,
                         fontColor = STYLE.TEXT_SOFT,
                     },
-                    UI.Button {
-                        text = "再修一世",
-                        width = 140,
-                        height = 44,
-                        fontSize = 16,
-                        fontWeight = "bold",
-                        marginTop = 6,
-                        borderRadius = 12,
-                        borderWidth = 2.5,
-                        borderColor = STYLE.GAMEOVER_BTN_BORDER,
-                        backgroundColor = STYLE.GAMEOVER_BTN_BG,
-                        pressedBackgroundColor = STYLE.GAMEOVER_BTN_PRESS,
-                        fontColor = STYLE.TEXT_WHITE,
-                        onClick = onRestart,
+                    UI.Panel {
+                        width = "100%",
+                        gap = 6,
+                        marginTop = 8,
+                        children = {
+                            MakeButton("goContinueButton", "继续当前游戏", {181, 150, 91, 255}, {145, 110, 60, 255}, callbacks.onContinue),
+                            MakeButton("goReincarnateButton", "进入轮回", {166, 60, 51, 255}, {130, 42, 36, 255}, callbacks.onReincarnate),
+                            MakeButton("goRestartButton", "直接重开", STYLE.GAMEOVER_BTN_BG, STYLE.GAMEOVER_BTN_PRESS, callbacks.onRestart),
+                        },
                     },
                 },
             },
