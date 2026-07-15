@@ -2,17 +2,14 @@
 -- 仙侠合成塔防 - 手机竖屏版
 
 local UI = require("urhox-libs/UI")
-local Config = require("Config")
-local GameState = require("GameState")
 local RealmSystem = require("RealmSystem")
-local TurnEngine = require("combat.TurnEngine")
-local WaveSystem = require("WaveSystem")
 local Effects = require("Effects")
 local DragActions = require("DragActions")
 local UIController = require("UIController")
-local ConsumableService = require("items.ConsumableService")
-local RogueRewardSystem = require("rogue.RogueRewardSystem")
-local Stats = require("combat.Stats")
+local ConsumableActions = require("actions.ConsumableActions")
+local RogueRewardActions = require("actions.RogueRewardActions")
+local RunLifecycle = require("flow.RunLifecycle")
+local TurnFlowController = require("flow.TurnFlowController")
 -- VectorIcons 和 FieldView 的图标绘制已移到 UI 层
 -- NanoVG 只负责特效
 
@@ -21,11 +18,11 @@ local state_ = nil
 local uiController_ = nil
 local vg_ = nil
 local firstFrameDone_ = false
+local turnFlow_ = nil
 
 local StartNewGame
 local CreateUI
 local TriggerMergeEffect
-local TriggerAttackEffects
 local OnDragStart
 local CanDrop
 local OnDragEnd
@@ -39,84 +36,49 @@ local RestartGame
 local ContinueRun
 local EnterReincarnation
 
-local function CopyTable(value)
-    if type(value) ~= "table" then return value end
-    local copied = {}
-    for k, v in pairs(value) do
-        copied[k] = CopyTable(v)
-    end
-    return copied
-end
-
-local function CapturePermanentProgress(state)
-    if not state then return nil end
-    return {
-        talentPoints = state.talentPoints or 0,
-        spentTalentPoints = state.spentTalentPoints or 0,
-        purchasedTalents = CopyTable(state.purchasedTalents or {}),
-        talentModifiers = CopyTable(state.talentModifiers or {}),
-        talentVariants = CopyTable(state.talentVariants or {}),
-        unlockedPools = CopyTable(state.unlockedPools or {}),
-        unlockedWeaponSchools = CopyTable(state.unlockedWeaponSchools or {}),
-        reincarnationCount = state.reincarnationCount or 0,
-        difficulty = state.difficulty or 1,
-        difficultyTalentBonus = state.difficultyTalentBonus or 0,
-        maxUnlockedDifficulty = state.maxUnlockedDifficulty or 1,
-    }
-end
-
-local function RestorePermanentProgress(state, progress)
-    if not state or not progress then return end
-    state.talentPoints = progress.talentPoints
-    state.spentTalentPoints = progress.spentTalentPoints
-    state.purchasedTalents = progress.purchasedTalents
-    state.talentModifiers = progress.talentModifiers
-    state.talentVariants = progress.talentVariants
-    state.unlockedPools = progress.unlockedPools
-    state.unlockedWeaponSchools = progress.unlockedWeaponSchools
-    state.reincarnationCount = progress.reincarnationCount
-    state.difficulty = progress.difficulty
-    state.difficultyTalentBonus = progress.difficultyTalentBonus
-    state.maxUnlockedDifficulty = progress.maxUnlockedDifficulty
-    Stats.RecalculateMaxHp(state, { fullHeal = true })
-end
-
-local function ResetOpeningWave(state)
-    if not state then return end
-    state.monsters = {}
-    state.pendingWaveQueue = {}
-    state.pendingWaveIndex = nil
-    state.pendingWaveExp = 0
-    state.waveCount = 0
-    state.realmWaveIndex = 0
-    WaveSystem.ForceSpawnWave(state)
-end
-
 local function StartNewGameWithProgress(progress)
-    StartNewGame()
-    RestorePermanentProgress(state_, progress)
-    if progress then
-        ResetOpeningWave(state_)
-    end
+    state_ = RunLifecycle.StartNewGame(progress)
+    Effects.Reset()
+    firstFrameDone_ = false
 end
 
 local function HasPendingRogueChoice()
     return state_ and state_.pendingRogueChoices and #state_.pendingRogueChoices > 0
 end
 
-local function HasActiveMonster()
-    if not state_ then return false end
-    for _, monster in ipairs(state_.monsters or {}) do
-        if monster.hp and monster.hp > 0 then
-            return true
-        end
-    end
-    return false
-end
-
 local function ShowOperationUnavailable()
     if uiController_ then
         uiController_:ShowOperationWarning("该操作不可用")
+    end
+end
+
+local function CreateTurnFlowController()
+    turnFlow_ = TurnFlowController.Create({
+        onRefreshResolved = function()
+            UpdateAllUI()
+        end,
+        onShowHitVisual = function(hitVisualState)
+            if uiController_ and hitVisualState then
+                uiController_:UpdateAll(hitVisualState)
+            end
+        end,
+        onShowTurnVisual = function(turnVisualState)
+            if uiController_ and turnVisualState then
+                uiController_:UpdateAll(turnVisualState)
+                return true
+            end
+            return false
+        end,
+        triggerAttack = function(state)
+            local duration, hitDelay = Effects.TriggerAttack(state)
+            return duration or 0, hitDelay or 0
+        end,
+    })
+end
+
+local function ResolvePendingTurnVisual()
+    if turnFlow_ and turnFlow_:IsResolving() then
+        turnFlow_:RefreshResolvedTurnNow()
     end
 end
 
@@ -135,6 +97,7 @@ function Start()
     })
 
     vg_ = nvgCreate(1)
+    CreateTurnFlowController()
 
     StartNewGame()
     CreateUI()
@@ -153,15 +116,7 @@ function Stop()
 end
 
 StartNewGame = function()
-    state_ = GameState.New()
-    Effects.Reset()
-    firstFrameDone_ = false
-
-    state_.slots[1] = GameState.CreateItemByBaseId(state_, Config.ITEM_CATEGORY.WEAPON, "qingfeng_sword", 1)
-
-    state_.waveCount = 0
-    state_.realmWaveIndex = 0
-    WaveSystem.ForceSpawnWave(state_)
+    StartNewGameWithProgress(nil)
 end
 
 CreateUI = function()
@@ -185,20 +140,18 @@ TriggerMergeEffect = function(category, idx, quality)
     end
 end
 
-TriggerAttackEffects = function()
-    Effects.TriggerAttack(state_)
-end
-
 OnDragStart = function(itemData, sourceSlot)
 end
 
 CanDrop = function(itemData, sourceSlot, targetSlot)
+    ResolvePendingTurnVisual()
     if HasPendingRogueChoice() then return false end
     return DragActions.CanDrop(state_, sourceSlot, targetSlot)
 end
 
 OnDragEnd = function(itemData, sourceSlot, targetSlot, success)
     if state_.isGameOver then return end
+    ResolvePendingTurnVisual()
     if HasPendingRogueChoice() then
         ShowOperationUnavailable()
         UpdateAllUI()
@@ -229,20 +182,23 @@ OnDragEnd = function(itemData, sourceSlot, targetSlot, success)
         return
     end
 
-    TurnEngine.ExecuteTurn(state_)
-    TriggerAttackEffects()
-    UpdateAllUI()
+    if turnFlow_ then
+        turnFlow_:ExecutePlayerTurn(state_)
+    else
+        UpdateAllUI()
+    end
 end
 
 OnUseConsumable = function(context)
     if state_.isGameOver or not context then return end
+    ResolvePendingTurnVisual()
     if HasPendingRogueChoice() then
         ShowOperationUnavailable()
         UpdateAllUI()
         return
     end
 
-    local result = ConsumableService.Use(state_, context.category, context.index)
+    local result = ConsumableActions.Use(state_, context)
     if not result.ok and result.message then
         ShowOperationUnavailable()
     end
@@ -250,12 +206,7 @@ OnUseConsumable = function(context)
     if result.ok then
         if uiController_ then
             uiController_:HideItemInfo()
-            if (result.heal or 0) > 0 then
-                uiController_:ShowPlayerHeal(result.heal)
-            end
         end
-        TriggerAttackEffects()
-        RealmSystem.CheckRealmUp(state_)
         UpdateAllUI()
     else
         UpdateSlots()
@@ -264,20 +215,9 @@ end
 
 OnSelectRogueReward = function(rewardId)
     if state_.isGameOver then return end
+    ResolvePendingTurnVisual()
 
-    local result = RogueRewardSystem.SelectChoice(state_, rewardId)
-    if result.ok then
-        Stats.RecalculateMaxHp(state_, { addDeltaToHp = true })
-        RealmSystem.CheckRealmUp(state_)
-        if state_.shouldSpawnBreakthroughWave then
-            state_.shouldSpawnBreakthroughWave = false
-            WaveSystem.ForceSpawnWave(state_)
-        elseif not HasPendingRogueChoice() and not HasActiveMonster() then
-            state_.forceSpawnNextTurn = false
-            WaveSystem.ForceSpawnWave(state_)
-        end
-    end
-
+    local result = RogueRewardActions.Select(state_, rewardId)
     if not result.ok and result.message then
         ShowOperationUnavailable()
     end
@@ -286,10 +226,12 @@ OnSelectRogueReward = function(rewardId)
 end
 
 OnAbandonRun = function()
+    ResolvePendingTurnVisual()
     if not state_ then return end
 
-    local progress = CapturePermanentProgress(state_)
-    StartNewGameWithProgress(progress)
+    state_ = RunLifecycle.AbandonRunKeepingProgress(state_)
+    Effects.Reset()
+    firstFrameDone_ = false
     UpdateAllUI()
 end
 
@@ -312,11 +254,12 @@ UpdateFieldPanel = function()
 end
 
 RestartGame = function()
-    local progress = CapturePermanentProgress(state_)
     if uiController_ then
         uiController_:ClearFloatingTexts()
     end
-    StartNewGameWithProgress(progress)
+    state_ = RunLifecycle.RestartKeepingProgress(state_)
+    Effects.Reset()
+    firstFrameDone_ = false
     if uiController_ then
         uiController_:HideGameOver()
     end
@@ -326,41 +269,26 @@ end
 ContinueRun = function()
     if not state_ or not state_.canContinueRun then return end
 
-    state_.isGameOver = false
-    state_.isVictory = false
-    state_.victoryReason = nil
-    state_.canContinueRun = false
-    state_.hp = state_.maxHp
-    state_.lastPillHp = state_.maxHp
-    state_.forceSpawnNextTurn = false
-
     if uiController_ then
         uiController_:HideGameOver()
         uiController_:ClearFloatingTexts()
     end
 
-    if state_.shouldSpawnBreakthroughWave then
-        state_.shouldSpawnBreakthroughWave = false
-        WaveSystem.ForceSpawnWave(state_)
-    elseif not HasPendingRogueChoice() and not HasActiveMonster() then
-        WaveSystem.ForceSpawnWave(state_)
-    end
-
+    state_ = RunLifecycle.ContinueRun(state_)
     UpdateAllUI()
 end
 
 EnterReincarnation = function()
     if not state_ then return end
 
-    RealmSystem.TriggerReincarnation(state_)
-    local progress = CapturePermanentProgress(state_)
-
     if uiController_ then
         uiController_:HideGameOver()
         uiController_:ClearFloatingTexts()
     end
 
-    StartNewGameWithProgress(progress)
+    state_ = RunLifecycle.EnterReincarnation(state_)
+    Effects.Reset()
+    firstFrameDone_ = false
     UpdateAllUI()
 end
 
@@ -369,6 +297,9 @@ end
 function HandleUpdate(eventType, eventData)
     local dt = eventData:GetFloat("TimeStep")
     Effects.Update(dt)
+    if turnFlow_ then
+        turnFlow_:Update(dt)
+    end
     if uiController_ then
         uiController_:Update(dt)
     end

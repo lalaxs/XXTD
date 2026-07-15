@@ -4,6 +4,7 @@ local RogueRewardSystem = require("rogue.RogueRewardSystem")
 local TalentSystem = require("TalentSystem")
 local Stats = require("combat.Stats")
 local GameEvents = require("GameEvents")
+local VisualEventQueue = require("events.VisualEventQueue")
 
 local MonsterSystem = {}
 
@@ -383,7 +384,12 @@ local function AddMonsterAttackEvent(state, monster, damage, nameSuffix, didCrit
     table.insert(state.lastMonsterAttackEvents, {
         col = monster.col,
         row = monster.row,
+        monsterId = monster.id,
         monsterType = monster.monsterType,
+        tier = monster.tier,
+        tags = monster.tags,
+        skillId = skill.id,
+        asset = monster.asset,
         name = eventName,
         damage = damage,
         crit = didCrit == true,
@@ -514,12 +520,14 @@ local function ReflectDamage(state, attack, amount, sourceName)
 
     attacker.hp = attacker.hp - amount
     ApplySurvivalSkill(state, attacker)
-    table.insert(state.lastDamageDealt, {
+    local event = {
         col = attacker.col,
         row = attacker.row,
         dmg = amount,
         target = attacker,
-    })
+    }
+    table.insert(state.lastDamageDealt, event)
+    VisualEventQueue.PushDamageDealt(state, event)
     print(string.format("  [Armor] %s 反伤 %s %d", sourceName, attacker.name, amount))
     return amount
 end
@@ -696,6 +704,7 @@ function MonsterSystem.ApplyDamage(state)
 
     state.hp = state.hp - totalFinalDmg
     state.lastPlayerDamage = totalFinalDmg
+    VisualEventQueue.PushPlayerDamage(state, totalFinalDmg, state.lastPlayerDamageCrit)
 
     if totalFinalDmg > 0 or totalMitigated > 0 or totalShieldAbsorbed > 0 then
         print(string.format("  [Damage Total] 最终扣血%d 护甲减算%.0f 护盾吸收%d", totalFinalDmg, totalMitigated, totalShieldAbsorbed))
@@ -793,12 +802,14 @@ local function TickMonsterDot(state, monster)
     if turns <= 0 or damage <= 0 or monster.hp <= 0 then return end
 
     monster.hp = monster.hp - damage
-    table.insert(state.lastDamageDealt, {
+    local event = {
         col = monster.col,
         row = monster.row,
         dmg = damage,
         target = monster,
-    })
+    }
+    table.insert(state.lastDamageDealt, event)
+    VisualEventQueue.PushDamageDealt(state, event)
     print(string.format("  [DoT] %s 持续伤害%d", monster.name, damage))
 
     turns = turns - 1

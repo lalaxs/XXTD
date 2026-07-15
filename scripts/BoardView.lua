@@ -6,6 +6,7 @@ local Config = require("Config")
 local SlotAdapter = require("SlotAdapter")
 local BoardLayout = require("BoardLayout")
 local StatusPresenter = require("views.StatusPresenter")
+local VisualState = require("VisualState")
 
 local BoardView = {}
 
@@ -397,6 +398,22 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
             end
         end,
     })
+    local expRect = D(m.expCircle, m.scale)
+    boardPanel:AddChild(UI.Panel {
+        position = "absolute",
+        left = m.originX + expRect.x,
+        top = m.originY + expRect.y,
+        width = expRect.w,
+        height = expRect.h,
+        borderRadius = expRect.w / 2,
+        backgroundColor = {0, 0, 0, 0},
+        pointerEvents = "auto",
+        onTap = function()
+            if callbacks and callbacks.onExpCircleClick then
+                callbacks.onExpCircleClick()
+            end
+        end,
+    })
     local menuRect = D(m.menu, m.scale)
     boardPanel:AddChild(UI.Panel {
         position = "absolute",
@@ -414,12 +431,24 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
     })
 
     for _, monster in ipairs(state.monsters) do
-        if monster.row >= 1 and monster.row <= Config.FIELD_ROWS and monster.hp > 0 then
+        if monster.row >= 1 and monster.row <= Config.FIELD_ROWS and (monster.hp > 0 or monster.showDeadHit == true) then
             local r = CellRect(m, monster.row, monster.col, false)
             local img = GetMonsterImage(monster)
-            local hpRatio = math.max(0.02, monster.hp / monster.maxHp)
+            local hpRatio = 0
+            if monster.showDeadHit ~= true then
+                hpRatio = math.max(0.02, Clamp01(monster.hp / math.max(1, monster.maxHp or 1)))
+            end
+            local hpBarW = r.w * 0.78
+            local hpBarH = 28 * m.scale
+            local hpBarInset = math.max(1, 2 * m.scale)
+            local hpBarBorder = math.max(1, math.floor(3 * m.scale + 0.5))
+            local hpBarInnerW = math.max(1, hpBarW - hpBarInset * 2)
+            local hpBarInnerH = math.max(1, hpBarH - hpBarInset * 2)
+            local hpBarRadius = math.max(3 * m.scale, hpBarH * 0.22)
+            local hpFillRadius = math.max(2 * m.scale, hpBarInnerH * 0.18)
             local monsterRef = monster
-            boardPanel:AddChild(UI.Panel {
+            local shouldPlaySpawnAnim = VisualState.ShouldPlayMonsterSpawn(state, monster)
+            local monsterPanel = UI.Panel {
                 position = "absolute",
                 left = r.x,
                 top = r.y,
@@ -429,6 +458,15 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
                 justifyContent = "flex-end",
                 overflow = "visible",
                 pointerEvents = "auto",
+                transformOrigin = "center",
+                scale = shouldPlaySpawnAnim and 0.2 or 1.0,
+                opacity = shouldPlaySpawnAnim and 0.0 or 1.0,
+                translateY = shouldPlaySpawnAnim and (-16 * m.scale) or 0,
+                transition = shouldPlaySpawnAnim and {
+                    properties = { "scale", "opacity", "translateY" },
+                    duration = 0.42,
+                    easing = "easeOutBack",
+                } or nil,
                 onClick = function()
                     if callbacks and callbacks.onMonsterClick then
                         callbacks.onMonsterClick(monsterRef)
@@ -446,19 +484,23 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
                     },
                     UI.Panel {
                         position = "absolute",
-                        bottom = 8 * m.scale,
-                        width = r.w * 0.74,
-                        height = 18 * m.scale,
-                        backgroundImage = UI_ASSETS.hpBarBg,
-                        backgroundFit = "stretch",
+                        bottom = 0,
+                        width = hpBarW,
+                        height = hpBarH,
+                        backgroundColor = {24, 16, 14, 240},
+                        borderRadius = hpBarRadius,
+                        borderWidth = hpBarBorder,
+                        borderColor = {50, 30, 24, 255},
                         pointerEvents = "none",
                         children = {
                             UI.Panel {
                                 position = "absolute",
-                                left = 0,
-                                top = 0,
-                                width = tostring(math.floor(hpRatio * 100)) .. "%",
-                                height = "100%",
+                                left = hpBarInset,
+                                top = hpBarInset,
+                                width = hpBarInnerW,
+                                height = hpBarInnerH,
+                                backgroundColor = {48, 22, 20, 255},
+                                borderRadius = hpFillRadius,
                                 overflow = "hidden",
                                 pointerEvents = "none",
                                 children = {
@@ -466,10 +508,10 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
                                         position = "absolute",
                                         left = 0,
                                         top = 0,
-                                        width = r.w * 0.74,
-                                        height = 18 * m.scale,
-                                        backgroundImage = UI_ASSETS.hpBarFill,
-                                        backgroundFit = "stretch",
+                                        width = tostring(math.floor(hpRatio * 100)) .. "%",
+                                        height = "100%",
+                                        backgroundColor = {150, 28, 26, 255},
+                                        borderRadius = hpFillRadius,
                                         pointerEvents = "none",
                                     },
                                 },
@@ -477,17 +519,17 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
                             UI.Panel {
                                 position = "absolute",
                                 left = 0,
-                                top = -6 * m.scale,
+                                top = 0,
                                 width = "100%",
-                                height = 30 * m.scale,
+                                height = "100%",
                                 alignItems = "center",
                                 justifyContent = "center",
                                 pointerEvents = "none",
                                 children = {
                                     UI.Label {
                                         text = tostring(math.max(0, math.floor(monster.hp + 0.5))),
-                                        fontSize = math.floor(26 * m.scale),
-                                        fontColor = {255, 255, 255, 255},
+                                        fontSize = math.floor(27 * m.scale),
+                                        fontColor = {255, 250, 235, 255},
                                         fontWeight = "bold",
                                         textAlign = "center",
                                         pointerEvents = "none",
@@ -497,7 +539,18 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
                         },
                     },
                 },
-            })
+            }
+            if shouldPlaySpawnAnim then
+                if callbacks and callbacks.onMonsterSpawnAnimationPlayed then
+                    callbacks.onMonsterSpawnAnimationPlayed(monsterRef)
+                end
+                monsterPanel:SetStyle({
+                    scale = 1.0,
+                    opacity = 1.0,
+                    translateY = 0,
+                })
+            end
+            boardPanel:AddChild(monsterPanel)
         end
     end
 

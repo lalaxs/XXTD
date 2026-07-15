@@ -239,29 +239,29 @@ end
 
 function FieldRewardSystem.RollRewardQuality(state)
     local shift = math.floor(RogueRewardSystem.GetModifierValue(state, "fieldRewardQualityShift"))
-    local maxQuality = math.min(Config.MAX_QUALITY, Config.GetRealmMajorIndex(state.realmIndex or 1))
+    local minQuality, maxQuality = Config.GetDropQualityRange(state.realmIndex or 1)
     local total = 0
     for _, entry in ipairs(Config.DROP_RULES.QUALITY_WEIGHTS or {}) do
         local quality = entry.quality or 1
-        if quality <= maxQuality then
+        if quality >= minQuality and quality <= maxQuality then
             total = total + math.max(0, entry.weight or 0)
         end
     end
-    if total <= 0 then return 1 end
+    if total <= 0 then return minQuality end
 
     local roll = math.random() * total
     local acc = 0
     for _, entry in ipairs(Config.DROP_RULES.QUALITY_WEIGHTS or {}) do
         local quality = entry.quality or 1
-        if quality <= maxQuality then
+        if quality >= minQuality and quality <= maxQuality then
             acc = acc + math.max(0, entry.weight or 0)
             if roll <= acc then
-                local shiftedQuality = math.min(maxQuality, quality + shift)
+                local shiftedQuality = math.min(maxQuality, math.max(minQuality, quality + shift))
                 return ApplyReincarnationQualityBonus(state, shiftedQuality, maxQuality)
             end
         end
     end
-    return ApplyReincarnationQualityBonus(state, math.min(maxQuality, 1 + shift), maxQuality)
+    return ApplyReincarnationQualityBonus(state, math.min(maxQuality, math.max(minQuality, minQuality + shift)), maxQuality)
 end
 
 local function PickFallbackCell(state)

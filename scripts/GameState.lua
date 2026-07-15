@@ -6,6 +6,7 @@ local ItemSystem = require("ItemSystem")
 local PlayerItemResolver = require("combat.PlayerItemResolver")
 local KillResolver = require("combat.KillResolver")
 local TalentUnlockSystem = require("TalentUnlockSystem")
+local VisualState = require("VisualState")
 
 local GameState = {}
 
@@ -41,10 +42,8 @@ function GameState.New()
         turn = 0,
         waveCount = 0,
         waveTurnProgress = 0,  -- 独立的波次进度（领取场上奖励不计入）
+        waveTurnsSinceSpawn = 0,
         realmWaveIndex = 0,
-        pendingWaveQueue = {},
-        pendingWaveIndex = nil,
-        pendingWaveExp = 0,
         forceSpawnNextTurn = false,
         difficulty = 1,
         difficultyTalentBonus = 0,
@@ -93,6 +92,7 @@ function GameState.New()
         score = 0,
         
         -- 动画/UI状态
+        visual = VisualState.Create(),
         lastDamageDealt = {},   -- 上回合造成的伤害（用于显示伤害数字）
         lastPlayerDamage = 0,   -- 上回合玩家受到的伤害
         lastPlayerDamageCrit = false, -- 上回合玩家受到的伤害是否包含暴击

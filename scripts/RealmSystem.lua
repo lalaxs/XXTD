@@ -1,5 +1,6 @@
 local Config = require("Config")
 local RogueRewardSystem = require("rogue.RogueRewardSystem")
+local VisualEventQueue = require("events.VisualEventQueue")
 local WaveSystem = require("WaveSystem")
 
 local Stats = require("combat.Stats")
@@ -52,11 +53,9 @@ end
 local function ResetRealmBoard(state)
     WaveSystem.PrepareRealmBreakthroughWave(state)
     state.shouldSpawnBreakthroughWave = true
-    state.lastDamageDealt = {}
     state.lastAttackEvents = {}
     state.lastMonsterAttackEvents = {}
-    state.lastPlayerDamage = 0
-    state.lastPlayerDamageCrit = false
+    VisualEventQueue.ClearTurnEvents(state)
 end
 
 function RealmSystem.MarkAscensionVictory(state, reason, options)
@@ -90,13 +89,14 @@ function RealmSystem.CheckRealmUp(state)
                 Stats.Heal(state, bonusHeal, { allowOverheal = true })
             end
 
-            state.lastBreakthroughEvent = {
+            local breakthroughEvent = {
                 realmIndex = state.realmIndex,
                 realmName = realm.name,
                 talentGain = talentGain,
                 totalTalentPoints = state.talentPoints or 0,
                 isMajorBreakthrough = isMajorBreakthrough,
             }
+            VisualEventQueue.PushBreakthrough(state, breakthroughEvent)
 
             if state.realmIndex >= #Config.REALMS then
                 RealmSystem.MarkAscensionVictory(state, "ascension", { canContinue = true })
@@ -104,7 +104,7 @@ function RealmSystem.CheckRealmUp(state)
                 state.pendingRogueChoices = nil
                 state.shouldSpawnBreakthroughWave = false
             elseif isMajorBreakthrough then
-                state.pendingRogueEvent = state.lastBreakthroughEvent
+                state.pendingRogueEvent = breakthroughEvent
                 RogueRewardSystem.CreateBreakthroughChoices(state)
             else
                 state.pendingRogueEvent = nil
@@ -157,10 +157,8 @@ function RealmSystem.TriggerReincarnation(state)
     -- 重置波次、场上怪物、已放置道具
     state.waveCount = 0
     state.waveTurnProgress = 0
+    state.waveTurnsSinceSpawn = 0
     state.realmWaveIndex = 0
-    state.pendingWaveQueue = {}
-    state.pendingWaveIndex = nil
-    state.pendingWaveExp = 0
     state.forceSpawnNextTurn = false
     state.monsters = {}
     state.fieldRewards = {}
@@ -193,7 +191,7 @@ function RealmSystem.TriggerReincarnation(state)
     state.turn = 0
 
     -- 标记轮回事件（UI可读取显示）
-    state.reincarnationTriggered = true
+    VisualEventQueue.PushReincarnation(state)
     state.reincarnationCount = (state.reincarnationCount or 0) + 1
 
     print(string.format("[Reincarnation] 返璞归真！第%d次轮回，天赋点=%d",

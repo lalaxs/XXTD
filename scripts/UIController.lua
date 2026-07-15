@@ -4,15 +4,16 @@ local STYLE = require("Theme")
 local SlotAdapter = require("SlotAdapter")
 local Views = require("Views")
 local BoardView = require("BoardView")
+local BoardLayout = require("BoardLayout")
 local InfoPanelView = require("InfoPanelView")
 local RogueRewardView = require("views.RogueRewardView")
 local MainMenuView = require("views.MainMenuView")
 local TalentTreeView = require("views.TalentTreeView")
 local RogueBuffListView = require("views.RogueBuffListView")
 local FloatingTextView = require("views.FloatingTextView")
-local TalentSystem = require("TalentSystem")
-local Stats = require("combat.Stats")
+local TalentActions = require("actions.TalentActions")
 local GameEvents = require("GameEvents")
+local VisualState = require("VisualState")
 
 local UIController = {}
 UIController.__index = UIController
@@ -324,6 +325,18 @@ function UIController:CreateSlots()
     }
 end
 
+function UIController:UpdateInfoPanelAnchor()
+    if not self.infoPanel or not self.fieldPanel then return end
+
+    local layout = self.fieldPanel:GetAbsoluteLayout()
+    if not layout or layout.w == 0 or layout.h == 0 then return end
+
+    local metrics = BoardLayout.CalcMetrics(layout.w, layout.h)
+    local fieldBottom = metrics.originY + (metrics.fieldY + Config.FIELD_ROWS * metrics.fieldCellH) * metrics.scale
+    local bottom = math.floor(layout.h - fieldBottom + 0.5)
+    self.infoPanel:SetBottom(bottom)
+end
+
 function UIController:ShowItemInfo(item, category, index)
     if not item then
         self:HideItemInfo()
@@ -334,10 +347,12 @@ function UIController:ShowItemInfo(item, category, index)
     if category and index then
         context = { category = category, index = index }
     end
+    self:UpdateInfoPanelAnchor()
     self.infoPanel:ShowItem(item, context, self.currentState_)
 end
 
 function UIController:ShowFieldRewardInfo(fieldReward)
+    self:UpdateInfoPanelAnchor()
     if fieldReward and fieldReward.rewardItem then
         self.infoPanel:ShowItem(fieldReward.rewardItem, nil, self.currentState_)
     else
@@ -346,7 +361,15 @@ function UIController:ShowFieldRewardInfo(fieldReward)
 end
 
 function UIController:ShowMonsterInfo(monster)
+    self:UpdateInfoPanelAnchor()
     self.infoPanel:ShowMonster(monster)
+end
+
+function UIController:ShowRealmInfo()
+    if self.infoPanel and self.currentState_ then
+        self:UpdateInfoPanelAnchor()
+        self.infoPanel:ShowRealm(self.currentState_)
+    end
 end
 
 function UIController:HideItemInfo()
@@ -373,13 +396,9 @@ end
 
 function UIController:PurchaseTalent(nodeId)
     if not self.currentState_ then return end
-    local result = TalentSystem.Purchase(self.currentState_, nodeId)
+    local result = TalentActions.Purchase(self.currentState_, nodeId)
     if not result.ok and result.message and result.message ~= "" then
         self:ShowOperationWarning("该操作不可用")
-    end
-
-    if result.ok then
-        Stats.RecalculateMaxHp(self.currentState_, { addDeltaToHp = true })
     end
 
     if self.talentTreeView then
@@ -561,16 +580,26 @@ function UIController:UpdateFieldPanel(state)
     self:UpdateBoard(state)
 end
 
+local function MarkMonsterSpawnAnimationPlayed(state, monster)
+    VisualState.MarkMonsterSpawnPlayed(state, monster)
+end
+
 function UIController:UpdateBoard(state)
     BoardView.Update(self.fieldPanel, state, self.deploySlots, self.storageSlots[1], self.decomposeSlot, {
         onMonsterClick = function(monster)
             self:ShowMonsterInfo(monster)
+        end,
+        onMonsterSpawnAnimationPlayed = function(monster)
+            MarkMonsterSpawnAnimationPlayed(state, monster)
         end,
         onFieldRewardClick = function(fieldReward)
             self:ShowFieldRewardInfo(fieldReward)
         end,
         onMainMenuClick = function()
             self:ShowMainMenu()
+        end,
+        onExpCircleClick = function()
+            self:ShowRealmInfo()
         end,
         onBlankClick = function()
             self:HideItemInfo()

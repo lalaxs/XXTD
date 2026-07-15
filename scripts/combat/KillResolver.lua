@@ -4,6 +4,7 @@
 local RealmSystem = require("RealmSystem")
 local RogueRewardSystem = require("rogue.RogueRewardSystem")
 local Stats = require("combat.Stats")
+local VisualEventQueue = require("events.VisualEventQueue")
 
 local KillResolver = {}
 
@@ -13,12 +14,14 @@ end
 
 local function AddDamageEvent(state, monster, damage)
     if not monster or damage <= 0 then return end
-    table.insert(state.lastDamageDealt, {
+    local event = {
         col = monster.col,
         row = monster.row,
         dmg = damage,
         target = monster,
-    })
+    }
+    table.insert(state.lastDamageDealt, event)
+    VisualEventQueue.PushDamageDealt(state, event)
 end
 
 local function IsInPattern(monster, center, pattern)
@@ -63,12 +66,13 @@ local function ResolveMonsterDeaths(state)
         if monster.hp <= 0 then
             TriggerPoisonExplosion(state, monster)
             table.insert(toRemove, i)
-            local expGain = RealmSystem.AddExp(state, monster.exp, { deferCheck = true })
+            local expReward = math.max(1, math.floor(monster.exp or 0))
+            local expGain = RealmSystem.AddExp(state, expReward, { deferCheck = true })
             state.score = state.score + expGain
             if killHealPct > 0 then
                 totalHeal = totalHeal + math.max(1, math.floor((state.maxHp or 0) * killHealPct))
             end
-            print(string.format("  [Kill] %s 被击杀! +%d修为", monster.name, monster.exp))
+            print(string.format("  [Kill] %s 被击杀! +%d修为", monster.name, expGain))
         end
     end
 

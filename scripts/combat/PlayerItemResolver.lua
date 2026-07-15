@@ -7,6 +7,7 @@ local FieldRewardService = require("rewards.FieldRewardService")
 local RogueRewardSystem = require("rogue.RogueRewardSystem")
 local TalentSystem = require("TalentSystem")
 local GameEvents = require("GameEvents")
+local VisualEventQueue = require("events.VisualEventQueue")
 
 local PlayerItemResolver = {}
 
@@ -348,12 +349,14 @@ end
 
 local function AddDamageEvent(state, monster, damage)
     if not monster or damage <= 0 then return end
-    table.insert(state.lastDamageDealt, {
+    local event = {
         col = monster.col,
         row = monster.row,
         dmg = damage,
         target = monster,
-    })
+    }
+    table.insert(state.lastDamageDealt, event)
+    VisualEventQueue.PushDamageDealt(state, event)
 end
 
 local function ApplyDirectMonsterDamage(state, monster, amount, label)
@@ -677,13 +680,15 @@ local function ResolveMonsterHit(state, item, targetInfo, damage, didCrit)
     end
 
     if hpDmg > 0 then
-        table.insert(state.lastDamageDealt, {
+        local event = {
             col = targetInfo.col,
             row = targetInfo.row,
             dmg = hpDmg,
             target = monster,
             crit = didCrit == true,
-        })
+        }
+        table.insert(state.lastDamageDealt, event)
+        VisualEventQueue.PushDamageDealt(state, event)
     end
 end
 
@@ -728,9 +733,15 @@ local function ResolveAttackItemOnce(state, item, slotIdx, col, realm, silenced)
             slotIdx = slotIdx,
             col = col,
             targetType = targetInfo.targetType,
+            targetCol = targetInfo.col,
             targetRow = targetInfo.row,
             target = targetInfo.target,
             attackMode = item.attackMode or "single",
+            baseId = item.baseId,
+            school = item.school,
+            signature = item.signature,
+            quality = item.quality,
+            crit = didCrit == true,
         })
 
         if targetInfo.targetType == "monster" then

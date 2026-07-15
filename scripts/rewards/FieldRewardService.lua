@@ -4,6 +4,7 @@
 local Config = require("Config")
 local ItemSystem = require("ItemSystem")
 local RogueRewardSystem = require("rogue.RogueRewardSystem")
+local VisualEventQueue = require("events.VisualEventQueue")
 
 local FieldRewardService = {}
 
@@ -14,9 +15,35 @@ local CATEGORY_LABELS = {
     [Config.ITEM_CATEGORY.TALISMAN] = "符咒",
 }
 
+local function CountOwnedWeapons(state)
+    local count = 0
+    for _, item in ipairs(state.slots or {}) do
+        if ItemSystem.GetCategory(item) == Config.ITEM_CATEGORY.WEAPON then
+            count = count + 1
+        end
+    end
+    for _, item in ipairs(state.dropQueue or {}) do
+        if ItemSystem.GetCategory(item) == Config.ITEM_CATEGORY.WEAPON then
+            count = count + 1
+        end
+    end
+    return count
+end
+
+local function ShouldGuaranteeEarlyWeapon(state)
+    local rules = Config.FIELD_REWARD or {}
+    if Config.GetRealmMajorIndex(state.realmIndex or 1) ~= 1 then return false end
+    if (state.turn or 0) > (rules.EARLY_WEAPON_GUARANTEE_TURNS or 0) then return false end
+    return CountOwnedWeapons(state) < (rules.EARLY_WEAPON_GUARANTEE_MIN_COUNT or 2)
+end
+
 local function GetCategoryWeightMultiplier(state, category)
     local bonus = RogueRewardSystem.GetModifierValue(state, "itemCategoryWeightPct:" .. tostring(category))
-    return math.max(0, 1 + bonus)
+    local multiplier = math.max(0, 1 + bonus)
+    if category == Config.ITEM_CATEGORY.WEAPON and Config.GetRealmMajorIndex(state.realmIndex or 1) == 1 then
+        multiplier = multiplier * ((Config.FIELD_REWARD and Config.FIELD_REWARD.EARLY_WEAPON_WEIGHT_MUL) or 1.0)
+    end
+    return multiplier
 end
 
 local function BuildCategoryWeights(state)
@@ -81,14 +108,22 @@ local function FormatDropMessage(item, stored)
     return string.format("发现%s：%s[%s]，品质未超过暂存", categoryLabel, item.name, qualityName)
 end
 
+local function ClampRewardQuality(state, quality)
+    local minQuality, maxQuality = Config.GetDropQualityRange(state.realmIndex or 1)
+    return math.min(maxQuality, math.max(minQuality, quality or minQuality))
+end
+
 function FieldRewardService.CreateRewardItem(state, quality)
     local itemCategory = RollItemCategory(state)
-    return ItemSystem.CreateItemByCategory(state, itemCategory, math.min(quality or 1, Config.MAX_QUALITY))
+    if ShouldGuaranteeEarlyWeapon(state) then
+        itemCategory = Config.ITEM_CATEGORY.WEAPON
+    end
+    return ItemSystem.CreateItemByCategory(state, itemCategory, ClampRewardQuality(state, quality))
 end
 
 function FieldRewardService.CreateConsumableReward(state, quality)
     local category = math.random() < 0.5 and Config.ITEM_CATEGORY.PILL or Config.ITEM_CATEGORY.TALISMAN
-    return ItemSystem.CreateItemByCategory(state, category, math.min(quality or 1, Config.MAX_QUALITY))
+    return ItemSystem.CreateItemByCategory(state, category, ClampRewardQuality(state, quality))
 end
 
 function FieldRewardService.StoreRewardItem(state, item)
@@ -104,7 +139,7 @@ function FieldRewardService.ResolveFieldRewardHit(state, fieldReward)
     local newItem = fieldReward.rewardItem or FieldRewardService.CreateRewardItem(state, rewardQuality)
     local stored = PutIntoStorage(state, newItem)
 
-    table.insert(state.dropMessages, FormatDropMessage(newItem, stored))
+    VisualEventQueue.PushDropMessage(state, FormatDropMessage(newItem, stored))
 end
 
 return FieldRewardService

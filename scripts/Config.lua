@@ -29,6 +29,18 @@ Config.QUALITY = {
 }
 Config.MAX_QUALITY = #Config.QUALITY
 Config.SKILL_UNLOCK_TIER = 5
+Config.MIN_DROP_QUALITY_BY_MAJOR = { 1, 2, 3, 4, 5, 6, 7, 8, 9 }
+
+function Config.GetDropQualityRange(realmIndex)
+    local majorIndex = 1
+    if Config.GetRealmMajorIndex then
+        majorIndex = Config.GetRealmMajorIndex(realmIndex or 1)
+    end
+    local minQuality = Config.MIN_DROP_QUALITY_BY_MAJOR[majorIndex] or 1
+    local maxQuality = math.min(Config.MAX_QUALITY, majorIndex)
+    minQuality = math.min(maxQuality, math.max(1, minQuality))
+    return minQuality, maxQuality
+end
 
 -- ============================================================================
 -- 道具类型
@@ -69,10 +81,10 @@ Config.PLAYER_DEBUFFS = {
 }
 
 Config.MONSTER_DEFS = {
-    { id = "wild_boar", name = "野猪妖", realm = 1, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.NORMAL, hp = 50, atk = 12, defense = 4, critChance = 0.05, critMultiplier = 1.5, exp = 5, tags = { "normal" }, asset = "image/enemy/enemy_ (1).png" },
+    { id = "wild_boar", name = "野猪妖", realm = 1, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.NORMAL, hp = 18, atk = 12, defense = 4, critChance = 0.05, critMultiplier = 1.5, exp = 5, tags = { "normal" }, asset = "image/enemy/enemy_ (1).png" },
     { id = "gray_wolf", name = "灰狼妖", realm = 2, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.NORMAL, hp = 90, atk = 14, defense = 7, critChance = 0.05, critMultiplier = 1.5, exp = 7, tags = { "normal" }, asset = "image/enemy/enemy_ (2).png" },
     { id = "tree_demon", name = "树妖", realm = 3, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.ELITE, hp = 220, atk = 18, defense = 12, critChance = 0.08, critMultiplier = 1.6, exp = 22, tags = { "elite", "tank" }, asset = "image/enemy/enemy_ (3).png" },
-    { id = "shell_imp", name = "壳背小妖", realm = 1, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.MINION, hp = 30, atk = 6, defense = 4, critChance = 0.0, critMultiplier = 1.0, exp = 3, tags = { "minion" }, asset = "image/enemy/enemy_ (4).png" },
+    { id = "shell_imp", name = "壳背小妖", realm = 1, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.MINION, hp = 15, atk = 6, defense = 4, critChance = 0.0, critMultiplier = 1.0, exp = 3, tags = { "minion" }, asset = "image/enemy/enemy_ (4).png" },
     { id = "black_wolf", name = "黑狼妖", realm = 2, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.ELITE, hp = 180, atk = 21, defense = 7, critChance = 0.10, critMultiplier = 1.8, exp = 18, tags = { "elite" }, asset = "image/enemy/enemy_ (5).png" },
     { id = "green_snake", name = "青蛇妖", realm = 3, monsterType = Config.MONSTER_TYPE.RANGED, tier = Config.MONSTER_TIER.NORMAL, hp = 95, atk = 10, defense = 6, critChance = 0.04, critMultiplier = 1.4, exp = 9, tags = { "ranged", "attack_down" }, attackRange = 3, playerDebuff = { type = Config.PLAYER_DEBUFFS.ATTACK_DOWN, value = 0.15, duration = 2 }, asset = "image/enemy/enemy_ (6).png" },
     { id = "tiger_boss", name = "虎妖头目", realm = 4, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.BOSS, hp = 840, atk = 55, defense = 21, critChance = 0.20, critMultiplier = 2.0, exp = 60, tags = { "boss" }, asset = "image/enemy/enemy_ (7).png" },
@@ -108,17 +120,18 @@ end
 -- 境界系统（45 小境界）
 -- expRequired = 当前小境界突破到下一小境界所需修为；渡劫九重为终局，需求为 0
 -- majorBreakthrough = 突破到该小境界时是否属于大境界突破
+-- expBase/expMinorGrowth/expMajorGrowth 控制同一大境界内的小境界修为曲线，避免长回合积累后过早突破
 -- ============================================================================
 local REALM_STAGE_SPECS = {
-    { name = "练气", stages = { "前期", "中期", "后期" }, expMul = 1, maxHp = 100, atkMul = 1.0, defMul = 1.0, pillMul = 1.0, dropMul = 1.00, dropBonus = 0.00 },
-    { name = "筑基", stages = { "一层", "二层", "三层", "四层", "五层", "六层", "七层", "八层", "九层" }, expMul = 4, maxHp = 120, atkMul = 1.1, defMul = 1.1, pillMul = 1.1, dropMul = 1.05, dropBonus = 0.05 },
-    { name = "金丹", stages = { "前期", "中期", "后期", "圆满" }, expMul = 12, maxHp = 150, atkMul = 1.2, defMul = 1.2, pillMul = 1.2, dropMul = 1.10, dropBonus = 0.10 },
-    { name = "元婴", stages = { "前期", "中期", "后期", "圆满" }, expMul = 30, maxHp = 180, atkMul = 1.3, defMul = 1.3, pillMul = 1.3, dropMul = 1.15, dropBonus = 0.15 },
-    { name = "化神", stages = { "前期", "中期", "后期", "圆满" }, expMul = 70, maxHp = 220, atkMul = 1.4, defMul = 1.4, pillMul = 1.4, dropMul = 1.20, dropBonus = 0.20 },
-    { name = "炼虚", stages = { "前期", "中期", "后期", "圆满" }, expMul = 160, maxHp = 260, atkMul = 1.5, defMul = 1.5, pillMul = 1.5, dropMul = 1.25, dropBonus = 0.25 },
-    { name = "合体", stages = { "前期", "中期", "后期", "圆满" }, expMul = 360, maxHp = 300, atkMul = 1.6, defMul = 1.6, pillMul = 1.6, dropMul = 1.30, dropBonus = 0.30 },
-    { name = "大乘", stages = { "前期", "中期", "后期", "圆满" }, expMul = 800, maxHp = 350, atkMul = 1.7, defMul = 1.7, pillMul = 1.7, dropMul = 1.35, dropBonus = 0.35 },
-    { name = "渡劫", stages = { "一重", "二重", "三重", "四重", "五重", "六重", "七重", "八重", "九重" }, expMul = 1800, maxHp = 400, atkMul = 1.8, defMul = 1.8, pillMul = 1.8, dropMul = 1.40, dropBonus = 0.40 },
+    { name = "练气", stages = { "前期", "中期", "后期" }, expBase = 65, expMul = 1, expMinorGrowth = 1.55, expMajorGrowth = 1.12, maxHp = 100, atkMul = 1.0, defMul = 1.0, pillMul = 1.0, dropMul = 1.00, dropBonus = 0.00 },
+    { name = "筑基", stages = { "一层", "二层", "三层", "四层", "五层", "六层", "七层", "八层", "九层" }, expBase = 60, expMul = 3.4, expMinorGrowth = 1.05, expMajorGrowth = 1.06, maxHp = 120, atkMul = 1.1, defMul = 1.1, pillMul = 1.1, dropMul = 1.05, dropBonus = 0.05 },
+    { name = "金丹", stages = { "前期", "中期", "后期", "圆满" }, expBase = 80, expMul = 12, expMinorGrowth = 1.45, expMajorGrowth = 1.09, maxHp = 150, atkMul = 1.2, defMul = 1.2, pillMul = 1.2, dropMul = 1.10, dropBonus = 0.10 },
+    { name = "元婴", stages = { "前期", "中期", "后期", "圆满" }, expBase = 88, expMul = 30, expMinorGrowth = 1.48, expMajorGrowth = 1.08, maxHp = 180, atkMul = 1.3, defMul = 1.3, pillMul = 1.3, dropMul = 1.15, dropBonus = 0.15 },
+    { name = "化神", stages = { "前期", "中期", "后期", "圆满" }, expBase = 96, expMul = 70, expMinorGrowth = 1.50, expMajorGrowth = 1.07, maxHp = 220, atkMul = 1.4, defMul = 1.4, pillMul = 1.4, dropMul = 1.20, dropBonus = 0.20 },
+    { name = "炼虚", stages = { "前期", "中期", "后期", "圆满" }, expBase = 106, expMul = 160, expMinorGrowth = 1.52, expMajorGrowth = 1.06, maxHp = 260, atkMul = 1.5, defMul = 1.5, pillMul = 1.5, dropMul = 1.25, dropBonus = 0.25 },
+    { name = "合体", stages = { "前期", "中期", "后期", "圆满" }, expBase = 118, expMul = 360, expMinorGrowth = 1.54, expMajorGrowth = 1.05, maxHp = 300, atkMul = 1.6, defMul = 1.6, pillMul = 1.6, dropMul = 1.30, dropBonus = 0.30 },
+    { name = "大乘", stages = { "前期", "中期", "后期", "圆满" }, expBase = 132, expMul = 800, expMinorGrowth = 1.56, expMajorGrowth = 1.04, maxHp = 350, atkMul = 1.7, defMul = 1.7, pillMul = 1.7, dropMul = 1.35, dropBonus = 0.35 },
+    { name = "渡劫", stages = { "一重", "二重", "三重", "四重", "五重", "六重", "七重", "八重", "九重" }, expBase = 150, expMul = 1800, expMinorGrowth = 1.24, expMajorGrowth = 1.03, maxHp = 400, atkMul = 1.8, defMul = 1.8, pillMul = 1.8, dropMul = 1.40, dropBonus = 0.40 },
 }
 
 local function RoundNumber(value)
@@ -128,8 +141,11 @@ end
 local function BuildRealmStage(spec, majorIndex, minorIndex)
     local minorCount = #spec.stages
     local progress = minorCount > 1 and (minorIndex - 1) / (minorCount - 1) or 0
-    local expRequired = RoundNumber(50 * spec.expMul * (minorIndex ^ 1.35))
-    local statMul = 1 + 0.08 * progress
+    local expBase = spec.expBase or 50
+    local expMinorGrowth = spec.expMinorGrowth or 1.35
+    local expMajorGrowth = spec.expMajorGrowth or 1.0
+    local expRequired = RoundNumber(expBase * spec.expMul * (minorIndex ^ expMinorGrowth) * (expMajorGrowth ^ (majorIndex - 1)))
+    local statMul = 1 + 0.12 * progress
 
     return {
         name = spec.name .. spec.stages[minorIndex],
@@ -142,9 +158,9 @@ local function BuildRealmStage(spec, majorIndex, minorIndex)
         expRequired = expRequired,
         levelExp = expRequired,
         maxHp = RoundNumber(spec.maxHp * statMul),
-        atkMul = spec.atkMul * (1 + 0.04 * progress),
-        defMul = spec.defMul * (1 + 0.04 * progress),
-        pillMul = spec.pillMul * (1 + 0.04 * progress),
+        atkMul = spec.atkMul * (1 + 0.07 * progress),
+        defMul = spec.defMul * (1 + 0.08 * progress),
+        pillMul = spec.pillMul * (1 + 0.05 * progress),
         dropMul = spec.dropMul,
         dropBonus = spec.dropBonus,
     }
@@ -198,10 +214,38 @@ Config.MAX_DIFFICULTY = 5
 -- ============================================================================
 -- P2 波次设计
 -- ============================================================================
-Config.WAVE_INTERVAL = 3
-Config.TUTORIAL_WAVE_INTERVAL = 4
+Config.WAVE_INTERVAL = 1
+Config.TUTORIAL_WAVE_INTERVAL = 2
+Config.WAVE_SPAWN = {
+    EARLY_CHANCE = 0.28,
+    DEFAULT_CHANCE = 0.50,
+    EARLY_MIN_INTERVAL = 2,
+    DEFAULT_MIN_INTERVAL = 1,
+    EARLY_PITY_INTERVAL = 5,
+    DEFAULT_PITY_INTERVAL = 3,
+    CHANCE_GROWTH_PER_TURN = 0.10,
+    MAX_SPAWN_CHANCE = 0.90,
+    MINOR_HP_GROWTH = 1.00,
+    MINOR_ATK_GROWTH = 0.45,
+    MINOR_DEF_GROWTH = 0.55,
+    MINOR_EXP_GROWTH = 0.75,
+    ACTIVE_LIMIT_BY_MAJOR = { 3, 5, 7, 8, 9, 10, 11, 12, 14 },
+    COUNT_ROLL_BY_MAJOR = {
+        [1] = { { count = 1, weight = 80 }, { count = 2, weight = 20 } },
+        [2] = { { count = 1, weight = 55 }, { count = 2, weight = 35 }, { count = 3, weight = 10 } },
+        [3] = { { count = 1, weight = 40 }, { count = 2, weight = 40 }, { count = 3, weight = 20 } },
+        [4] = { { count = 1, weight = 30 }, { count = 2, weight = 40 }, { count = 3, weight = 25 }, { count = 4, weight = 5 } },
+        [5] = { { count = 1, weight = 20 }, { count = 2, weight = 40 }, { count = 3, weight = 30 }, { count = 4, weight = 10 } },
+        [6] = { { count = 1, weight = 15 }, { count = 2, weight = 35 }, { count = 3, weight = 35 }, { count = 4, weight = 15 } },
+        [7] = { { count = 1, weight = 10 }, { count = 2, weight = 30 }, { count = 3, weight = 40 }, { count = 4, weight = 20 } },
+        [8] = { { count = 1, weight = 5 }, { count = 2, weight = 25 }, { count = 3, weight = 45 }, { count = 4, weight = 25 } },
+        [9] = { { count = 2, weight = 25 }, { count = 3, weight = 45 }, { count = 4, weight = 30 } },
+    },
+}
 Config.WAVE_BUDGET_TOLERANCE = 0.08
 Config.WAVE_MAX_MONSTERS = 10
+Config.MONSTER_EXP_MUL = 1.35
+Config.MONSTER_EXP_EARLY_MAJOR_BONUS = 0.10
 -- 敌人血攻成长只在飞升后继续游戏的无尽模式生效；普通境界内每波敌人数值保持不变。
 Config.WAVE_ENEMY_HP_GROWTH = 0.04
 Config.WAVE_ENEMY_ATK_GROWTH = 0.03
@@ -247,6 +291,9 @@ Config.FIELD_REWARD = {
     PITY_INTERVAL = 10,
     CHANCE_GROWTH_PER_TURN = 0.03,
     MAX_SPAWN_CHANCE = 0.45,
+    EARLY_WEAPON_GUARANTEE_TURNS = 8,
+    EARLY_WEAPON_GUARANTEE_MIN_COUNT = 2,
+    EARLY_WEAPON_WEIGHT_MUL = 2.0,
     RECENT_MEMORY = 3,
     DEPLOYED_COLUMN_BONUS = 2.0,
     EMPTY_COLUMN_PENALTY = 1.2,
@@ -256,15 +303,16 @@ Config.FIELD_REWARD = {
 }
 
 Config.SPAWN_POINT_RULES = {
-    RECENT_MEMORY = 4,
-    SAME_COLUMN_PENALTY = 4.0,
-    RECENT_COLUMN_PENALTY = 1.5,
-    RESERVED_NEIGHBOR_PENALTY = 1.0,
-    COLUMN_LOAD_PENALTY = 2.0,
+    RECENT_MEMORY = 3,
+    SAME_COLUMN_REPEAT_CHANCE = 0.28,
+    SAME_COLUMN_PENALTY = 0.8,
+    RECENT_COLUMN_PENALTY = 0.5,
+    RESERVED_NEIGHBOR_PENALTY = 0.6,
+    COLUMN_LOAD_PENALTY = 1.1,
     EARLY_EMPTY_DEPLOY_PENALTY = 2.5,
     LATE_EMPTY_DEPLOY_PRESSURE = 0.8,
     CENTER_COLUMN_BONUS = 0.35,
-    RANDOM_JITTER = 0.8,
+    RANDOM_JITTER = 1.4,
 }
 
 -- ============================================================================

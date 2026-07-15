@@ -12,17 +12,16 @@ local KillResolver = require("combat.KillResolver")
 local TalentSystem = require("TalentSystem")
 local RogueRewardSystem = require("rogue.RogueRewardSystem")
 local Stats = require("combat.Stats")
+local VisualEventQueue = require("events.VisualEventQueue")
 
 local TurnEngine = {}
 
 local function ResetTurnEvents(state)
     state.turnLog = {}
-    state.lastDamageDealt = {}
     state.lastAttackEvents = {}
     state.lastMonsterAttackEvents = {}
-    state.lastPlayerDamage = 0
-    state.lastPlayerDamageCrit = false
     state.consumableUsesThisTurn = 0
+    VisualEventQueue.ClearTurnEvents(state)
 end
 
 local function TakeHeldDeathSavePill(state)
@@ -151,10 +150,19 @@ local function TriggerFieldRewardSupply(state)
 
     local spawned = FieldRewardSystem.ForceSpawnFieldReward(state, "百宝囊")
     if spawned then
-        table.insert(state.dropMessages, "百宝囊感应：随机奖励已刷新")
+        VisualEventQueue.PushDropMessage(state, "百宝囊感应：随机奖励已刷新")
         print("  [Rogue] 百宝囊触发，强制刷新一个随机奖励")
     else
         print("  [Rogue] 百宝囊触发，但场上没有可用刷新点")
+    end
+end
+
+local function MarkPlayerHitDamageEvents(state, startIndex)
+    for i = startIndex or 1, #(state.lastDamageDealt or {}) do
+        local event = state.lastDamageDealt[i]
+        if event then
+            event.visualPhase = "playerHit"
+        end
     end
 end
 
@@ -168,8 +176,10 @@ function TurnEngine.ExecuteTurn(state)
     print(string.format("[Turn %d] === 回合开始 ===", state.turn))
 
     MonsterSystem.ApplyArmorTurnEffects(state)
+    local playerDamageEventStart = #(state.lastDamageDealt or {}) + 1
     PlayerItemResolver.Resolve(state)
     KillResolver.Resolve(state)
+    MarkPlayerHitDamageEvents(state, playerDamageEventStart)
     if state.isGameOver then return end
     MonsterSystem.RangedAttack(state)
     FieldRewardSystem.MoveFieldRewards(state)

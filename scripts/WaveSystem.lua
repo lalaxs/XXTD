@@ -1,12 +1,12 @@
 local Config = require("Config")
+local VisualState = require("VisualState")
 
 local WaveSystem = {}
 
 local BUDGET_MAX_ATTEMPTS = 80
 local COLUMN_SOFT_CAP = 7
-local EARLY_REALM_ACTIVE_LIMIT = 1
-local MID_REALM_ACTIVE_LIMIT = 3
-local DEFAULT_SPAWN_MAX = 3
+local DEFAULT_ACTIVE_LIMIT = 8
+local DEFAULT_SPAWN_MAX = 4
 
 local function ClampDifficulty(value)
     return math.min(Config.MAX_DIFFICULTY or 5, math.max(1, value or 1))
@@ -39,12 +39,48 @@ local function CopyDebuffList(def)
     return nil
 end
 
+local function GetRealmMinorProgress(state)
+    local realm = Config.GetRealm(state and state.realmIndex or 1)
+    if not realm or not realm.minorCount or realm.minorCount <= 1 then
+        return 0
+    end
+    return (realm.minorIndex - 1) / (realm.minorCount - 1)
+end
+
+local function GetRealmStatPressureMul(state, configKey, fallbackGrowth)
+    local growth = ((Config.WAVE_SPAWN or {})[configKey]) or fallbackGrowth
+    local progress = GetRealmMinorProgress(state)
+    local easedProgress = progress * progress * (3 - 2 * progress)
+    return 1.0 + easedProgress * growth
+end
+
+local function GetRealmHpPressureMul(state)
+    return GetRealmStatPressureMul(state, "MINOR_HP_GROWTH", 1.00)
+end
+
+local function GetRealmAtkPressureMul(state)
+    return GetRealmStatPressureMul(state, "MINOR_ATK_GROWTH", 0.45)
+end
+
+local function GetRealmDefPressureMul(state)
+    return GetRealmStatPressureMul(state, "MINOR_DEF_GROWTH", 0.55)
+end
+
+local function GetRealmExpPressureMul(state)
+    return GetRealmStatPressureMul(state, "MINOR_EXP_GROWTH", 0.75)
+end
+
+local function GetRealmExpRewardMul(state)
+    local majorIndex = Config.GetRealmMajorIndex(state and state.realmIndex or 1)
+    local earlyBonus = Config.MONSTER_EXP_EARLY_MAJOR_BONUS or 0
+    local bonus = earlyBonus * math.max(0, 3 - majorIndex) / 2
+    return 1.0 + bonus
+end
+
 function WaveSystem.PrepareRealmBreakthroughWave(state)
     state.waveTurnProgress = 0
+    state.waveTurnsSinceSpawn = 0
     state.realmWaveIndex = 0
-    state.pendingWaveQueue = {}
-    state.pendingWaveIndex = nil
-    state.pendingWaveExp = 0
     state.forceSpawnNextTurn = false
     state.breakthroughSpawnAllowance = 1
 end
@@ -52,14 +88,22 @@ end
 function WaveSystem.CreateMonsterFromDef(def, col, row, state)
     local difficulty = GetDifficultyConfig(state)
     local enemyMul = difficulty.enemyMul or 1.0
+    local hpPressureMul = GetRealmHpPressureMul(state)
+    local atkPressureMul = GetRealmAtkPressureMul(state)
+    local defPressureMul = GetRealmDefPressureMul(state)
+    local expPressureMul = GetRealmExpPressureMul(state)
+    local expRewardMul = GetRealmExpRewardMul(state)
+    local expGlobalMul = Config.MONSTER_EXP_MUL or 1.0
     local isEndlessAscension = state and (state.realmIndex or 1) >= #Config.REALMS and state.ascensionAchieved == true
     local waveRank = isEndlessAscension and math.max(0, (state.realmWaveIndex or 1) - 1) or 0
     local hpGrowth = 1.0 + waveRank * (Config.WAVE_ENEMY_HP_GROWTH or 0)
     local atkGrowth = 1.0 + waveRank * (Config.WAVE_ENEMY_ATK_GROWTH or 0)
     local realmAtkScale = (Config.REALM_ENEMY_ATK_SCALE and Config.REALM_ENEMY_ATK_SCALE[def.realm or 1]) or 1.0
-    local atkMul = enemyMul * (1 + (difficulty.enemyAtkBonus or 0)) * realmAtkScale
-    local hp = math.max(1, math.floor((def.hp or 1) * enemyMul * hpGrowth + 0.5))
+    local atkMul = enemyMul * atkPressureMul * (1 + (difficulty.enemyAtkBonus or 0)) * realmAtkScale
+    local hp = math.max(1, math.floor((def.hp or 1) * enemyMul * hpPressureMul * hpGrowth + 0.5))
     local atk = math.max(1, math.floor((def.atk or 1) * atkMul * atkGrowth + 0.5))
+    local defense = math.max(0, math.floor((def.defense or 0) * defPressureMul + 0.5))
+    local exp = math.max(1, math.floor((def.exp or 0) * expGlobalMul * expPressureMul * expRewardMul + 0.5))
 
     return {
         id = def.id,
@@ -74,10 +118,10 @@ function WaveSystem.CreateMonsterFromDef(def, col, row, state)
         baseHp = def.hp,
         atk = atk,
         baseAtk = def.atk,
-        defense = def.defense or 0,
+        defense = defense,
         critChance = def.critChance or 0,
         critMultiplier = def.critMultiplier or 1.0,
-        exp = def.exp or 0,
+        exp = exp,
         dropChance = def.dropChance or 0,
         skill = def.skill,
         playerDebuffs = CopyDebuffList(def),
@@ -99,50 +143,6 @@ local function GetDef(id)
     return Config.MONSTER_BY_ID[id]
 end
 
-local function DefExp(def)
-    return def and (def.exp or 0) or 0
-end
-
-local function SumExp(defs)
-    local total = 0
-    for _, def in ipairs(defs or {}) do
-        total = total + DefExp(def)
-    end
-    return total
-end
-
-local function CopyDefs(defs)
-    local copied = {}
-    for _, def in ipairs(defs or {}) do
-        table.insert(copied, def)
-    end
-    return copied
-end
-
-local function IsWithinBudget(exp, target)
-    if target <= 0 then return true end
-    local tolerance = Config.WAVE_BUDGET_TOLERANCE or 0.08
-    return exp >= target * (1 - tolerance) and exp <= target * (1 + tolerance)
-end
-
-local function FindBestCandidate(candidates, currentExp, targetExp)
-    local best = nil
-    local bestScore = nil
-    for _, def in ipairs(candidates or {}) do
-        local score = math.abs(targetExp - (currentExp + DefExp(def)))
-        if not best or score < bestScore then
-            best = def
-            bestScore = score
-        end
-    end
-    return best
-end
-
-local function PickRandomDef(ids)
-    if not ids or #ids == 0 then return nil end
-    return GetDef(ids[math.random(#ids)])
-end
-
 local function BuildCandidateDefs(plan)
     local candidates = {}
     for _, id in ipairs(plan.candidates or {}) do
@@ -150,141 +150,6 @@ local function BuildCandidateDefs(plan)
         if def then table.insert(candidates, def) end
     end
     return candidates
-end
-
-local function BuildLockedDefs(plan, waveIndex)
-    local defs = {}
-    local locks = plan.locks and plan.locks[waveIndex]
-    if not locks then return defs end
-    for _, id in ipairs(locks) do
-        local def = GetDef(id)
-        if def then table.insert(defs, def) end
-    end
-    return defs
-end
-
-local function AddBossDef(state, plan, waveIndex, defs)
-    if not plan.boss then return end
-    local firstWave = plan.boss.firstWave or 4
-    local repeatEvery = plan.boss.repeatEvery or 0
-    local shouldSpawn = waveIndex == firstWave
-        or (repeatEvery > 0 and waveIndex > firstWave and (waveIndex - firstWave) % repeatEvery == 0)
-    if shouldSpawn then
-        local def = GetDef(plan.boss.id)
-        if def then table.insert(defs, def) end
-    end
-end
-
-local function AddDifficultyExtra(state, candidates, defs)
-    local difficulty = GetDifficultyConfig(state)
-    local extraCount = difficulty.extraMonsterPerWave or 0
-    for _ = 1, extraCount do
-        if #candidates == 0 then return end
-        table.insert(defs, candidates[math.random(#candidates)])
-    end
-end
-
-local function GenerateBudgetCandidate(state, plan, waveIndex, targetExp)
-    local candidates = BuildCandidateDefs(plan)
-    local defs = BuildLockedDefs(plan, waveIndex)
-    AddBossDef(state, plan, waveIndex, defs)
-
-    local maxMonsters = Config.WAVE_MAX_MONSTERS or 10
-    local currentExp = SumExp(defs)
-    if #candidates == 0 then
-        AddDifficultyExtra(state, candidates, defs)
-        return defs
-    end
-
-    while #defs < maxMonsters and currentExp < targetExp * (1 - (Config.WAVE_BUDGET_TOLERANCE or 0.08)) do
-        local candidate = FindBestCandidate(candidates, currentExp, targetExp)
-        if not candidate then break end
-        table.insert(defs, candidate)
-        currentExp = currentExp + DefExp(candidate)
-    end
-
-    if not IsWithinBudget(currentExp, targetExp) and #defs < maxMonsters then
-        local randomCandidate = candidates[math.random(#candidates)]
-        local withRandom = currentExp + DefExp(randomCandidate)
-        if math.abs(targetExp - withRandom) < math.abs(targetExp - currentExp) then
-            table.insert(defs, randomCandidate)
-            currentExp = withRandom
-        end
-    end
-
-    while #defs > 1 and currentExp > targetExp * (1 + (Config.WAVE_BUDGET_TOLERANCE or 0.08)) do
-        local removableIndex = #defs
-        local bossId = plan.boss and plan.boss.id or nil
-        for i = #defs, 1, -1 do
-            local def = defs[i]
-            if not (bossId and def.id == bossId) then
-                removableIndex = i
-                break
-            end
-        end
-        local removed = table.remove(defs, removableIndex)
-        currentExp = currentExp - DefExp(removed)
-    end
-
-    AddDifficultyExtra(state, candidates, defs)
-    return defs
-end
-
-local function GenerateRandomBudgetCandidate(state, plan, waveIndex, targetExp)
-    local candidates = BuildCandidateDefs(plan)
-    local defs = BuildLockedDefs(plan, waveIndex)
-    AddBossDef(state, plan, waveIndex, defs)
-
-    local maxMonsters = Config.WAVE_MAX_MONSTERS or 10
-    if #candidates == 0 then
-        AddDifficultyExtra(state, candidates, defs)
-        return defs
-    end
-
-    while #defs < maxMonsters and SumExp(defs) < targetExp * (1 - (Config.WAVE_BUDGET_TOLERANCE or 0.08)) do
-        table.insert(defs, candidates[math.random(#candidates)])
-    end
-
-    while #defs > 1 and SumExp(defs) > targetExp * (1 + (Config.WAVE_BUDGET_TOLERANCE or 0.08)) do
-        table.remove(defs, #defs)
-    end
-
-    AddDifficultyExtra(state, candidates, defs)
-    return defs
-end
-
-local function GetWaveTargetExp(plan, waveIndex, state)
-    local baseBudget = plan.baseBudget or 10
-    local growth = plan.budgetGrowth or 0.10
-    if state and (state.realmIndex or 1) >= #Config.REALMS and state.ascensionAchieved then
-        growth = Config.ENDLESS_WAVE_BUDGET_GROWTH or growth
-    end
-    local rank = math.max(0, waveIndex - 1)
-    return math.max(1, math.floor(baseBudget * (1.0 + rank * growth) + 0.5))
-end
-
-local function BuildWaveDefs(state, plan, waveIndex)
-    local targetExp = GetWaveTargetExp(plan, waveIndex, state)
-    local bestDefs = nil
-    local bestDiff = nil
-
-    for attempt = 1, BUDGET_MAX_ATTEMPTS do
-        local defs = attempt == 1
-            and GenerateBudgetCandidate(state, plan, waveIndex, targetExp)
-            or GenerateRandomBudgetCandidate(state, plan, waveIndex, targetExp)
-        local exp = SumExp(defs)
-        local diff = math.abs(targetExp - exp)
-        if not bestDefs or diff < bestDiff then
-            bestDefs = defs
-            bestDiff = diff
-        end
-        if IsWithinBudget(exp, targetExp) then
-            return defs, exp, true
-        end
-    end
-
-    local exp = SumExp(bestDefs)
-    return bestDefs or {}, exp, IsWithinBudget(exp, targetExp)
 end
 
 local function ColumnMonsterCounts(state)
@@ -375,8 +240,25 @@ local function GetSpawnColumnScore(state, reserved, counts, col)
     return score
 end
 
+local function PickRecentSpawnColumn(state, reserved, counts)
+    local rules = Config.SPAWN_POINT_RULES or {}
+    if math.random() >= (rules.SAME_COLUMN_REPEAT_CHANCE or 0) then return nil end
+
+    for _, col in ipairs(state.recentSpawnColumns or {}) do
+        if col and not reserved[col] and not TopRowBlocked(state, col) and (counts[col] or 0) < COLUMN_SOFT_CAP then
+            reserved[col] = true
+            PushRecentSpawnColumn(state, col)
+            return col
+        end
+    end
+    return nil
+end
+
 local function PickSpawnColumn(state, reserved)
     local counts = ColumnMonsterCounts(state)
+    local repeatedCol = PickRecentSpawnColumn(state, reserved, counts)
+    if repeatedCol then return repeatedCol end
+
     local bestCols = {}
     local bestScore = nil
 
@@ -412,135 +294,153 @@ end
 
 local function GetActiveMonsterLimit(state)
     local majorIndex = Config.GetRealmMajorIndex(state.realmIndex or 1)
-    if majorIndex <= 2 then
-        return EARLY_REALM_ACTIVE_LIMIT
-    elseif majorIndex <= 4 then
-        return MID_REALM_ACTIVE_LIMIT
-    end
-    return 5
+    local rules = Config.WAVE_SPAWN or {}
+    local limits = rules.ACTIVE_LIMIT_BY_MAJOR or {}
+    return limits[majorIndex] or DEFAULT_ACTIVE_LIMIT
 end
 
-local function GetSpawnBatchLimit(state)
-    local majorIndex = Config.GetRealmMajorIndex(state.realmIndex or 1)
-    if majorIndex <= 2 then
-        return 1
-    end
-
-    local baseMax = DEFAULT_SPAWN_MAX
-    if majorIndex >= 6 then
-        baseMax = 4
-    end
-    return math.random(1, baseMax)
+local function PickLockedStreamDef(plan, spawnIndex)
+    local locks = plan.locks and plan.locks[spawnIndex]
+    if not locks or #locks == 0 then return nil end
+    return GetDef(locks[math.random(#locks)])
 end
 
-local function SpawnQueuedMonsters(state)
-    state.pendingWaveQueue = state.pendingWaveQueue or {}
-    if #state.pendingWaveQueue == 0 then return 0, state.pendingWaveIndex end
+local function PickBossStreamDef(plan, spawnIndex)
+    if not plan.boss then return nil end
+    local firstSpawn = plan.boss.firstWave or 4
+    local repeatEvery = plan.boss.repeatEvery or 0
+    local shouldSpawn = spawnIndex == firstSpawn
+        or (repeatEvery > 0 and spawnIndex > firstSpawn and (spawnIndex - firstSpawn) % repeatEvery == 0)
+    if not shouldSpawn then return nil end
+    return GetDef(plan.boss.id)
+end
 
-    local waveIndex = state.pendingWaveIndex
+local function PickStreamMonsterDef(state, plan, spawnIndex)
+    local bossDef = PickBossStreamDef(plan, spawnIndex)
+    if bossDef then return bossDef end
+
+    local lockedDef = PickLockedStreamDef(plan, spawnIndex)
+    if lockedDef then return lockedDef end
+
+    local candidates = BuildCandidateDefs(plan)
+    if #candidates == 0 then return nil end
+    return candidates[math.random(#candidates)]
+end
+
+local function SpawnOneMonster(state)
     local activeLimit = GetActiveMonsterLimit(state)
-    local activeCount = CountActiveMonsters(state)
-    local bonusAllowance = state.breakthroughSpawnAllowance or 0
-    local availableSlots = math.max(0, activeLimit - activeCount)
-    if bonusAllowance > 0 then
-        availableSlots = math.max(availableSlots, bonusAllowance)
-    end
-    if availableSlots <= 0 then
-        return 0, waveIndex
+    if CountActiveMonsters(state) >= activeLimit then
+        return false, nil, nil, "active_limit"
     end
 
-    local reserved = {}
-    local spawned = 0
-    local remaining = {}
-    local batchLimit = math.min(#state.pendingWaveQueue, GetSpawnBatchLimit(state), availableSlots)
-
-    for _, def in ipairs(state.pendingWaveQueue) do
-        if spawned < batchLimit then
-            local col = PickSpawnColumn(state, reserved)
-            if col then
-                table.insert(state.monsters, WaveSystem.CreateMonsterFromDef(def, col, 1, state))
-                spawned = spawned + 1
-            else
-                table.insert(remaining, def)
-            end
-        else
-            table.insert(remaining, def)
-        end
-    end
-
-    state.pendingWaveQueue = remaining
-    if spawned > 0 and bonusAllowance > 0 then
-        state.breakthroughSpawnAllowance = math.max(0, bonusAllowance - spawned)
-    end
-    if #remaining == 0 then
-        state.pendingWaveIndex = nil
-        state.pendingWaveExp = 0
-        state.breakthroughSpawnAllowance = 0
-    end
-
-    return spawned, waveIndex
-end
-
-local function QueueNextWave(state)
     local majorIndex = Config.GetRealmMajorIndex(state.realmIndex or 1)
     local plan = Config.WAVE_PLANS[majorIndex]
-    if not plan then return false end
+    if not plan then return false, nil, nil, "no_plan" end
 
-    if state.pendingWaveQueue and #state.pendingWaveQueue > 0 then
-        return false
-    end
+    local spawnIndex = (state.realmWaveIndex or 0) + 1
+    local def = PickStreamMonsterDef(state, plan, spawnIndex)
+    if not def then return false, nil, nil, "no_def" end
 
-    state.realmWaveIndex = (state.realmWaveIndex or 0) + 1
+    local reserved = {}
+    local col = PickSpawnColumn(state, reserved)
+    if not col then return false, nil, nil, "blocked" end
+
+    state.realmWaveIndex = spawnIndex
     state.waveCount = (state.waveCount or 0) + 1
-    local waveIndex = state.realmWaveIndex
-    local defs, exp, inBudget = BuildWaveDefs(state, plan, waveIndex)
-    state.pendingWaveQueue = CopyDefs(defs)
-    state.pendingWaveIndex = waveIndex
-    state.pendingWaveExp = exp
+    local monster = WaveSystem.CreateMonsterFromDef(def, col, 1, state)
+    state.nextMonsterInstanceId = (state.nextMonsterInstanceId or 0) + 1
+    monster.instanceId = state.nextMonsterInstanceId
+    monster.spawnAnimTurn = state.turn or 0
+    VisualState.MarkMonsterSpawnPending(state, monster)
+    table.insert(state.monsters, monster)
+    return true, def, col, nil
+end
 
-    local targetExp = GetWaveTargetExp(plan, waveIndex, state)
-    if not inBudget then
-        print(string.format("  [Wave Budget] R%d-W%d 修为%d/目标%d 超出±%d%%，使用最接近组合",
-            majorIndex, waveIndex, exp, targetExp, math.floor((Config.WAVE_BUDGET_TOLERANCE or 0.08) * 100)))
+local function RollSpawnCount(state)
+    local majorIndex = Config.GetRealmMajorIndex(state.realmIndex or 1)
+    local rules = Config.WAVE_SPAWN or {}
+    local rollTable = rules.COUNT_ROLL_BY_MAJOR and rules.COUNT_ROLL_BY_MAJOR[majorIndex]
+    if not rollTable or #rollTable == 0 then return 1 end
+
+    local totalWeight = 0
+    for _, entry in ipairs(rollTable) do
+        totalWeight = totalWeight + math.max(0, entry.weight or 0)
     end
+    if totalWeight <= 0 then return 1 end
 
-    return true
+    local roll = math.random() * totalWeight
+    local acc = 0
+    for _, entry in ipairs(rollTable) do
+        acc = acc + math.max(0, entry.weight or 0)
+        if roll <= acc then
+            return math.max(1, math.floor(entry.count or 1))
+        end
+    end
+    return 1
 end
 
 local function TrySpawnWaveOrQueue(state)
-    local queued = state.pendingWaveQueue and #state.pendingWaveQueue > 0
-    if not queued then
-        QueueNextWave(state)
+    local targetCount = RollSpawnCount(state)
+    local spawnedCount = 0
+    local blockedReason = nil
+
+    for _ = 1, targetCount do
+        local spawned, def, col, reason = SpawnOneMonster(state)
+        if not spawned then
+            blockedReason = reason
+            break
+        end
+        spawnedCount = spawnedCount + 1
+        print(string.format("  [Spawn] %s 刷新在第%d列", def.name or "妖魔", col or 1))
     end
 
-    local spawned, waveIndex = SpawnQueuedMonsters(state)
-    if spawned > 0 then
-        print(string.format("  [Wave R%d-W%d] 刷新%d只，剩余排队%d只",
-            state.realmIndex or 1,
-            waveIndex or state.realmWaveIndex or 0,
-            spawned,
-            #(state.pendingWaveQueue or {})))
-    elseif state.pendingWaveQueue and #state.pendingWaveQueue > 0 then
-        print(string.format("  [Wave Queue] 列防溢触发，%d只怪物顺延", #state.pendingWaveQueue))
+    if spawnedCount == 0 then
+        if blockedReason == "active_limit" then
+            print("  [Spawn] 场上妖魔已达上限，本回合不刷新")
+        elseif blockedReason == "blocked" then
+            print("  [Spawn] 顶行无可用刷新点，本回合不刷新")
+        end
+    elseif spawnedCount < targetCount then
+        print(string.format("  [Spawn] 本次计划刷新%d只，实际刷新%d只", targetCount, spawnedCount))
     end
 
-    return spawned > 0
+    return spawnedCount > 0
+end
+
+local function GetWaveSpawnChance(state)
+    local rules = Config.WAVE_SPAWN or {}
+    local majorIndex = Config.GetRealmMajorIndex(state.realmIndex or 1)
+    local turns = state.waveTurnsSinceSpawn or 0
+    local baseChance = majorIndex == 1 and (rules.EARLY_CHANCE or 0.28) or (rules.DEFAULT_CHANCE or 0.50)
+    local minInterval = majorIndex == 1 and (rules.EARLY_MIN_INTERVAL or 2) or (rules.DEFAULT_MIN_INTERVAL or 1)
+    local pityInterval = majorIndex == 1 and (rules.EARLY_PITY_INTERVAL or 5) or (rules.DEFAULT_PITY_INTERVAL or 3)
+
+    if turns < minInterval then
+        return 0
+    end
+    if turns >= pityInterval then
+        return 1.0
+    end
+
+    local chance = baseChance + math.max(0, turns - minInterval) * (rules.CHANCE_GROWTH_PER_TURN or 0.10)
+    return math.min(rules.MAX_SPAWN_CHANCE or 0.90, chance)
 end
 
 function WaveSystem.SpawnWave(state)
-    if state.pendingWaveQueue and #state.pendingWaveQueue > 0 then
-        TrySpawnWaveOrQueue(state)
-        return
-    end
-
-    local interval = Config.GetRealmMajorIndex(state.realmIndex or 1) == 1 and Config.TUTORIAL_WAVE_INTERVAL or Config.WAVE_INTERVAL
-    if state.waveTurnProgress > 0 and state.waveTurnProgress % interval == 0 then
-        TrySpawnWaveOrQueue(state)
+    state.waveTurnsSinceSpawn = (state.waveTurnsSinceSpawn or 0) + 1
+    if math.random() <= GetWaveSpawnChance(state) then
+        if TrySpawnWaveOrQueue(state) then
+            state.waveTurnsSinceSpawn = 0
+        end
     end
 end
 
 function WaveSystem.ForceSpawnWave(state)
-    return TrySpawnWaveOrQueue(state)
+    local spawned = TrySpawnWaveOrQueue(state)
+    if spawned then
+        state.waveTurnsSinceSpawn = 0
+    end
+    return spawned
 end
 
 return WaveSystem

@@ -81,6 +81,11 @@ local function Clamp01(value)
     return math.min(1.0, math.max(0.0, value or 0))
 end
 
+local function FormatExp(value)
+    local n = tonumber(value) or 0
+    return tostring(math.max(0, math.floor(n + 0.5)))
+end
+
 local function GetEffectiveCritChance(state, item)
     local chance = item.crit or 0
     if state then
@@ -418,7 +423,7 @@ function InfoPanelView.Create()
     self.root = UI.Panel {
         visible = false,
         position = "absolute",
-        bottom = "32%",
+        bottom = 0,
         left = "8%",
         width = "84%",
         zIndex = 999,
@@ -463,6 +468,12 @@ end
 
 function InfoPanelView:GetRoot()
     return self.root
+end
+
+function InfoPanelView:SetBottom(bottom)
+    if self.root then
+        self.root:SetStyle({ bottom = math.max(0, bottom or 0) })
+    end
 end
 
 function InfoPanelView:SetOnUse(callback)
@@ -557,6 +568,54 @@ function InfoPanelView:ShowFieldReward(quality)
     self.title:SetText(string.format("场上奖励 [%s品质]", qName))
     self.desc:SetText("命中后可获得\n对应品质道具\n攻击法宝可拾取")
     self.timer = 3.0
+    self.root:SetVisible(true)
+end
+
+function InfoPanelView:ShowRealm(state)
+    if not state then return end
+    self.activeItemContext = nil
+    if self.useButton then
+        self.useButton:SetVisible(false)
+    end
+    if self.useButtonRow then
+        self.useButtonRow:SetVisible(false)
+    end
+
+    local realmIndex = math.min(#Config.REALMS, math.max(1, state.realmIndex or 1))
+    local realm = Config.GetRealm(realmIndex)
+    local requiredExp = realm.expRequired or 0
+    local currentExp = state.exp or 0
+    local progress = requiredExp > 0 and Clamp01(currentExp / requiredExp) or 1
+    local remainingExp = math.max(0, requiredExp - currentExp)
+    local nextRealm = realmIndex < #Config.REALMS and Config.GetRealm(realmIndex + 1) or nil
+    local lines = {
+        "当前境界：" .. tostring(realm.name),
+    }
+
+    if nextRealm then
+        AddLine(lines, "下个境界：" .. tostring(nextRealm.name))
+        AddLine(lines, string.format("当前修为：%s / %s", FormatExp(currentExp), FormatExp(requiredExp)))
+        AddLine(lines, "还需修为：" .. FormatExp(remainingExp))
+        AddLine(lines, "突破进度：" .. tostring(math.floor(progress * 100 + 0.5)) .. "%")
+    else
+        AddLine(lines, "下个境界：已至当前修行上限")
+        AddLine(lines, "当前修为：" .. FormatExp(currentExp))
+        AddLine(lines, "还需修为：0")
+        AddLine(lines, "突破进度：100%")
+    end
+
+    self.typeLabel:SetText("境")
+    self.typeLabel:SetFontColor({126, 78, 34, 255})
+    if self.iconPanel then
+        self.iconPanel:SetStyle({
+            backgroundImage = false,
+            backgroundColor = {245, 219, 172, 255},
+            borderColor = {171, 109, 46, 255},
+        })
+    end
+    self.title:SetText("境界修为")
+    self.desc:SetText(JoinLines(lines))
+    self.timer = 6.0
     self.root:SetVisible(true)
 end
 

@@ -7,6 +7,7 @@ local BuffSystem = require("BuffSystem")
 local KillResolver = require("combat.KillResolver")
 local RogueRewardSystem = require("rogue.RogueRewardSystem")
 local GameEvents = require("GameEvents")
+local VisualEventQueue = require("events.VisualEventQueue")
 
 local ConsumableService = {}
 
@@ -208,12 +209,14 @@ local function UseTalisman(state, item)
     local function applyEffect(monster)
         if damage > 0 then
             monster.hp = monster.hp - damage
-            table.insert(state.lastDamageDealt, {
+            local event = {
                 col = monster.col,
                 row = monster.row,
                 dmg = damage,
                 target = monster,
-            })
+            }
+            table.insert(state.lastDamageDealt, event)
+            VisualEventQueue.PushDamageDealt(state, event)
         end
         if effect and effect.type == "root" then
             monster.slowed = 1.0
