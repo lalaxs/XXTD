@@ -1,8 +1,7 @@
 -- items/ItemPoolService.lua
--- 标准道具池服务：用 category + quality 从具名配置池中抽取道具定义。
+-- 标准道具池服务：护甲、丹药、符咒全量开放；武器仅从本轮已解锁池抽取。
 
 local Config = require("Config")
-local TalentUnlockSystem = require("TalentUnlockSystem")
 local WeaponDefs = require("config.WeaponDefs")
 local ArmorDefs = require("config.ArmorDefs")
 local PillDefs = require("config.PillDefs")
@@ -59,7 +58,6 @@ end
 local function GetDefsPool(category, quality)
     local defs = CATEGORY_TO_DEFS[category]
     if not defs then return {} end
-
     local pool = {}
     for _, data in ipairs(defs) do
         if (data.category or category) == category and data.quality == quality then
@@ -69,18 +67,25 @@ local function GetDefsPool(category, quality)
     return pool
 end
 
-function ItemPoolService.GetPool(category, quality, state)
-    quality = ClampQuality(quality)
-    local pool = GetDefsPool(category, quality)
-    return TalentUnlockSystem.FilterPool(state, category, pool)
+function ItemPoolService.GetPool(category, quality, state, options)
+    local pool = GetDefsPool(category, ClampQuality(quality))
+    if category ~= Config.ITEM_CATEGORY.WEAPON or (options and options.ignoreWeaponUnlock) then
+        return pool
+    end
+
+    local unlocked = state and state.runWeapons or { qingfeng_sword = true }
+    local filtered = {}
+    for _, def in ipairs(pool) do
+        if unlocked[def.baseId] then
+            table.insert(filtered, def)
+        end
+    end
+    return filtered
 end
 
-function ItemPoolService.GetDefinitionByBaseId(category, quality, baseId, state)
-    local pool = ItemPoolService.GetPool(category, quality, state)
-    for _, def in ipairs(pool) do
-        if TalentUnlockSystem.GetDefinitionBaseId(def) == baseId then
-            return def
-        end
+function ItemPoolService.GetDefinitionByBaseId(category, quality, baseId, state, options)
+    for _, def in ipairs(ItemPoolService.GetPool(category, quality, state, options)) do
+        if def.baseId == baseId then return def end
     end
     return nil
 end
@@ -88,25 +93,14 @@ end
 function ItemPoolService.RollDefinition(category, quality, state)
     local pool = ItemPoolService.GetPool(category, quality, state)
     if #pool == 0 then return nil end
-
     local totalWeight = 0
-    for _, def in ipairs(pool) do
-        totalWeight = totalWeight + math.max(0, def.weight or 1)
-    end
-
-    if totalWeight <= 0 then
-        return pool[1]
-    end
-
-    local roll = math.random() * totalWeight
-    local acc = 0
+    for _, def in ipairs(pool) do totalWeight = totalWeight + math.max(0, def.weight or 1) end
+    if totalWeight <= 0 then return pool[1] end
+    local roll, acc = math.random() * totalWeight, 0
     for _, def in ipairs(pool) do
         acc = acc + math.max(0, def.weight or 1)
-        if roll <= acc then
-            return def
-        end
+        if roll <= acc then return def end
     end
-
     return pool[#pool]
 end
 

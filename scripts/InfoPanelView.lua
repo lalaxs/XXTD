@@ -5,7 +5,7 @@ local UI = require("urhox-libs/UI")
 local Config = require("Config")
 local ItemSystem = require("ItemSystem")
 local SlotAdapter = require("SlotAdapter")
-local TalentSystem = require("TalentSystem")
+local ReincarnationSystem = require("ReincarnationSystem")
 local RogueRewardSystem = require("rogue.RogueRewardSystem")
 local STYLE = require("Theme")
 
@@ -89,22 +89,15 @@ end
 local function GetEffectiveCritChance(state, item)
     local chance = item.crit or 0
     if state then
-        chance = chance + TalentSystem.GetModifierValue(state, "weaponCritChance")
+        chance = chance + ReincarnationSystem.GetValue(state, "critChance") + RogueRewardSystem.GetModifierValue(state, "critChance") + RogueRewardSystem.GetModifierValue(state, "critChance:" .. tostring(item.baseId))
     end
     return Clamp01(chance)
 end
 
 local function GetEffectiveCritMultiplier(state, item)
     local multiplier = item.critMultiplier or 2.0
-    if state
-        and item.school == "sword"
-        and state.talentVariants
-        and state.talentVariants.sword == "sharp"
-        and item.baseId == "qingfeng_sword" then
-        multiplier = math.max(multiplier, 2.3)
-    end
     if state then
-        multiplier = multiplier + RogueRewardSystem.GetModifierValue(state, "critDamagePct")
+        multiplier = multiplier + RogueRewardSystem.GetModifierValue(state, "critDamagePct") + RogueRewardSystem.GetModifierValue(state, "critDamagePct:" .. tostring(item.baseId))
     end
     return multiplier
 end

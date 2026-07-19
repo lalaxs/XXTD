@@ -1,7 +1,7 @@
 local Config = require("Config")
 local BuffSystem = require("BuffSystem")
 local RogueRewardSystem = require("rogue.RogueRewardSystem")
-local TalentSystem = require("TalentSystem")
+local ReincarnationSystem = require("ReincarnationSystem")
 local Stats = require("combat.Stats")
 local GameEvents = require("GameEvents")
 local VisualEventQueue = require("events.VisualEventQueue")
@@ -489,8 +489,7 @@ function MonsterSystem.GetDefenseStats(state)
         if item and item.itemType == Config.ITEM_TYPE.DEFENSE then
             local itemDefense = math.max(0, item.defense or item.power or 0)
             local rogueDefenseBuff = RogueRewardSystem.GetModifierValue(state, "armorDefensePct")
-            local talentDefenseBuff = TalentSystem.GetModifierValue(state, "armorDefensePct")
-            local scaledDefense = itemDefense * realm.defMul * (1 + rogueDefenseBuff + talentDefenseBuff)
+            local scaledDefense = itemDefense * realm.defMul * (1 + rogueDefenseBuff)
             totalDefense = totalDefense + scaledDefense
             table.insert(defenses, {
                 slotIdx = slotIdx,
@@ -662,7 +661,9 @@ function MonsterSystem.ApplyDamage(state)
             local defenseIgnore = math.min(1.0, attack.defenseIgnore or 0)
             local effectiveDefense = totalDefense * (1 - defenseIgnore)
             local allBuff = BuffSystem.GetBuffValue(state, "allUp")
-            local damageReduction = TalentSystem.GetModifierValue(state, "damageTakenReduction") + RogueRewardSystem.GetModifierValue(state, "damageTakenReduction")
+            local rogueReduction = RogueRewardSystem.GetModifierValue(state, "damageTakenReduction")
+            local permanentReduction = ReincarnationSystem.GetValue(state, "damageReduction")
+            local damageReduction = math.min(0.30, math.max(0, rogueReduction + permanentReduction))
             local vulnerable = state.playerDebuffs and state.playerDebuffs.vulnerable
             local vulnerableMul = (vulnerable and (vulnerable.turns or 0) > 0) and (1 + (vulnerable.value or 0)) or 1
             local reducedRawDmg = math.floor(rawDmg * vulnerableMul * math.max(0, 1 - math.min(0.95, allBuff + damageReduction)))

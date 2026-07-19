@@ -203,11 +203,11 @@ end
 -- 难度系统（§14 / P4.2）
 -- ============================================================================
 Config.DIFFICULTY = {
-    [1] = { id = 1, enemyMul = 1.0, talentBonus = 0, extraMonsterPerWave = 0, enemyAtkBonus = 0, fieldRewardSpawnMul = 1.0 },
-    [2] = { id = 2, enemyMul = 1.25, talentBonus = 1, extraMonsterPerWave = 0, enemyAtkBonus = 0, fieldRewardSpawnMul = 1.0 },
-    [3] = { id = 3, enemyMul = 1.55, talentBonus = 2, extraMonsterPerWave = 1, enemyAtkBonus = 0, fieldRewardSpawnMul = 1.0 },
-    [4] = { id = 4, enemyMul = 1.9, talentBonus = 3, extraMonsterPerWave = 1, enemyAtkBonus = 0.15, fieldRewardSpawnMul = 1.0 },
-    [5] = { id = 5, enemyMul = 2.3, talentBonus = 4, extraMonsterPerWave = 1, enemyAtkBonus = 0.15, fieldRewardSpawnMul = 0.8 },
+    [1] = { id = 1, enemyMul = 1.0, reincarnationBonus = 0, extraMonsterPerWave = 0, enemyAtkBonus = 0, fieldRewardSpawnMul = 1.0 },
+    [2] = { id = 2, enemyMul = 1.25, reincarnationBonus = 1, extraMonsterPerWave = 0, enemyAtkBonus = 0, fieldRewardSpawnMul = 1.0 },
+    [3] = { id = 3, enemyMul = 1.55, reincarnationBonus = 2, extraMonsterPerWave = 1, enemyAtkBonus = 0, fieldRewardSpawnMul = 1.0 },
+    [4] = { id = 4, enemyMul = 1.9, reincarnationBonus = 3, extraMonsterPerWave = 1, enemyAtkBonus = 0.15, fieldRewardSpawnMul = 1.0 },
+    [5] = { id = 5, enemyMul = 2.3, reincarnationBonus = 4, extraMonsterPerWave = 1, enemyAtkBonus = 0.15, fieldRewardSpawnMul = 0.8 },
 }
 Config.MAX_DIFFICULTY = 5
 
@@ -325,20 +325,14 @@ Config.MERGE_RULES = {
 
 Config.BUFFER_MAX = 1
 Config.CONSUMABLE_USE_LIMIT = 2
-Config.REINCARNATION_DROP_QUALITY_CHANCE = 0.05
-Config.REINCARNATION_DROP_QUALITY_CHANCE_CAP = 0.30
+Config.ROGUE = {
+    MAX_WEAPONS = 6,
+}
 Config.DECOMPOSE_EXP = { 2, 6, 15, 35, 80, 200, 500, 1200, 3000 }
 
 -- ============================================================================
--- 天赋点系统（P3）
+-- 轮回门槛
 -- ============================================================================
-Config.TALENT = {
-    MAX_POINTS = 59,
-    PER_POINT_ATK = 0,
-    PER_POINT_ATKSPD = 0,
-    PER_POINT_HP = 0,
-    PER_POINT_EXP = 0,
-}
 
 Config.REINCARNATION_REALM_INDEX = Config.GetFirstRealmIndexByMajor(5)
 Config.REINCARNATION_EXP_THRESHOLD = Config.GetRealm(Config.GetFirstRealmIndexByMajor(6)).expRequired

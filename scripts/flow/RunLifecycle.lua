@@ -3,6 +3,7 @@ local GameState = require("GameState")
 local WaveSystem = require("WaveSystem")
 local RealmSystem = require("RealmSystem")
 local Stats = require("combat.Stats")
+local ReincarnationSystem = require("ReincarnationSystem")
 
 local RunLifecycle = {}
 
@@ -32,34 +33,22 @@ end
 function RunLifecycle.CapturePermanentProgress(state)
     if not state then return nil end
     return {
-        talentPoints = state.talentPoints or 0,
-        spentTalentPoints = state.spentTalentPoints or 0,
-        purchasedTalents = CopyTable(state.purchasedTalents or {}),
-        talentModifiers = CopyTable(state.talentModifiers or {}),
-        talentVariants = CopyTable(state.talentVariants or {}),
-        unlockedPools = CopyTable(state.unlockedPools or {}),
-        unlockedWeaponSchools = CopyTable(state.unlockedWeaponSchools or {}),
+        reincarnationPoints = state.reincarnationPoints or 0,
+        reincarnationUpgrades = CopyTable(state.reincarnationUpgrades or {}),
         reincarnationCount = state.reincarnationCount or 0,
         difficulty = state.difficulty or 1,
-        difficultyTalentBonus = state.difficultyTalentBonus or 0,
         maxUnlockedDifficulty = state.maxUnlockedDifficulty or 1,
     }
 end
 
 function RunLifecycle.RestorePermanentProgress(state, progress)
     if not state or not progress then return end
-    state.talentPoints = progress.talentPoints
-    state.spentTalentPoints = progress.spentTalentPoints
-    state.purchasedTalents = progress.purchasedTalents
-    state.talentModifiers = progress.talentModifiers
-    state.talentVariants = progress.talentVariants
-    state.unlockedPools = progress.unlockedPools
-    state.unlockedWeaponSchools = progress.unlockedWeaponSchools
-    state.reincarnationCount = progress.reincarnationCount
-    state.difficulty = progress.difficulty
-    state.difficultyTalentBonus = progress.difficultyTalentBonus
-    state.maxUnlockedDifficulty = progress.maxUnlockedDifficulty
-    Stats.RecalculateMaxHp(state, { fullHeal = true })
+    state.reincarnationPoints = progress.reincarnationPoints or 0
+    state.reincarnationUpgrades = CopyTable(progress.reincarnationUpgrades or {})
+    state.reincarnationCount = progress.reincarnationCount or 0
+    state.difficulty = progress.difficulty or 1
+    state.maxUnlockedDifficulty = progress.maxUnlockedDifficulty or 1
+    ReincarnationSystem.EnsureState(state)
 end
 
 function RunLifecycle.ResetOpeningWave(state)
@@ -79,6 +68,7 @@ function RunLifecycle.StartNewGame(progress)
 
     if progress then
         RunLifecycle.RestorePermanentProgress(state, progress)
+        Stats.RecalculateMaxHp(state, { fullHeal = true })
         RunLifecycle.ResetOpeningWave(state)
     end
 

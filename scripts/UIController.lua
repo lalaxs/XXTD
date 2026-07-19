@@ -8,10 +8,10 @@ local BoardLayout = require("BoardLayout")
 local InfoPanelView = require("InfoPanelView")
 local RogueRewardView = require("views.RogueRewardView")
 local MainMenuView = require("views.MainMenuView")
-local TalentTreeView = require("views.TalentTreeView")
+local ReincarnationView = require("views.ReincarnationView")
 local RogueBuffListView = require("views.RogueBuffListView")
 local FloatingTextView = require("views.FloatingTextView")
-local TalentActions = require("actions.TalentActions")
+local ReincarnationActions = require("actions.ReincarnationActions")
 local GameEvents = require("GameEvents")
 local VisualState = require("VisualState")
 
@@ -114,7 +114,7 @@ function UIController.Create(state, callbacks)
         infoPanel = nil,
         rogueRewardView = nil,
         mainMenuView = nil,
-        talentTreeView = nil,
+        reincarnationView = nil,
         rogueBuffListView = nil,
         floatingTextView = nil,
         dragContext = nil,
@@ -198,8 +198,8 @@ function UIController.Create(state, callbacks)
         end
     end)
     self.mainMenuView = MainMenuView.Create({
-        onTalent = function()
-            self:ShowTalentTree()
+        onReincarnation = function()
+            self:ShowReincarnationUpgrades()
         end,
         onBuffs = function()
             self:ShowRogueBuffList()
@@ -216,11 +216,9 @@ function UIController.Create(state, callbacks)
             end
         end,
     })
-    self.talentTreeView = TalentTreeView.Create({
-        onPurchase = function(nodeId)
-            self:PurchaseTalent(nodeId)
-        end,
-    })
+    self.reincarnationView = ReincarnationView.Create(function(upgradeId)
+        self:UpgradeReincarnation(upgradeId)
+    end)
     self.rogueBuffListView = RogueBuffListView.Create()
 
     self.uiRoot = UI.Panel {
@@ -244,7 +242,7 @@ function UIController.Create(state, callbacks)
                     self.infoPanel:GetRoot(),
                     self.rogueRewardView:GetRoot(),
                     self.mainMenuView:GetRoot(),
-                    self.talentTreeView:GetRoot(),
+                    self.reincarnationView:GetRoot(),
                     self.rogueBuffListView:GetRoot(),
                     self.gameOverPanel,
                 },
@@ -376,9 +374,9 @@ function UIController:HideItemInfo()
     self.infoPanel:Hide()
 end
 
-function UIController:ShowTalentTree()
-    if self.talentTreeView and self.currentState_ then
-        self.talentTreeView:Show(self.currentState_)
+function UIController:ShowReincarnationUpgrades()
+    if self.reincarnationView and self.currentState_ then
+        self.reincarnationView:Show(self.currentState_)
     end
 end
 
@@ -394,15 +392,14 @@ function UIController:ShowMainMenu()
     end
 end
 
-function UIController:PurchaseTalent(nodeId)
+function UIController:UpgradeReincarnation(upgradeId)
     if not self.currentState_ then return end
-    local result = TalentActions.Purchase(self.currentState_, nodeId)
-    if not result.ok and result.message and result.message ~= "" then
-        self:ShowOperationWarning("该操作不可用")
+    local result = ReincarnationActions.Upgrade(self.currentState_, upgradeId)
+    if not result.ok then
+        self:ShowOperationWarning(result.message)
     end
-
-    if self.talentTreeView then
-        self.talentTreeView:Refresh()
+    if self.reincarnationView then
+        self.reincarnationView:Show(self.currentState_)
     end
     self:UpdateAll(self.currentState_)
 end

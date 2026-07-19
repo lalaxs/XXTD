@@ -1,8 +1,8 @@
 -- combat/Stats.lua
--- 玩家派生属性与生命值工具。集中处理最大气血、回血封顶等跨系统规则。
+-- 玩家派生属性与生命值工具。
 
 local Config = require("Config")
-local TalentSystem = require("TalentSystem")
+local ReincarnationSystem = require("ReincarnationSystem")
 local RogueRewardSystem = require("rogue.RogueRewardSystem")
 
 local Stats = {}
@@ -10,9 +10,9 @@ local Stats = {}
 function Stats.GetMaxHp(state)
     local realm = Config.GetRealm(state.realmIndex or 1)
     local baseHp = realm.maxHp or Config.PLAYER.BASE_HP
-    local hpBonus = 1.0 + TalentSystem.GetModifierValue(state, "maxHpPct")
-    local rogueHpBonus = 1.0 + RogueRewardSystem.GetModifierValue(state, "maxHpPct")
-    return math.max(1, math.floor(baseHp * hpBonus * rogueHpBonus))
+    local permanentBonus = 1.0 + ReincarnationSystem.GetValue(state, "maxHp")
+    local rogueBonus = 1.0 + RogueRewardSystem.GetModifierValue(state, "maxHpPct")
+    return math.max(1, math.floor(baseHp * permanentBonus * rogueBonus))
 end
 
 function Stats.RecalculateMaxHp(state, options)

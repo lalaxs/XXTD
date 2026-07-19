@@ -2,12 +2,17 @@
   "$schema": "../schemas/resources.schema.json",
 
   "preload_groups": [
-
+    "item_icons"
   ],
 
   "groups": {
     "default": [
       "**"
+    ],
+    "item_icons": [
+      "image/weapon/**",
+      "image/armor/**",
+      "image/item/**"
     ]
   }
 }

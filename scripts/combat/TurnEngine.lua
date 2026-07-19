@@ -9,7 +9,7 @@ local FieldRewardSystem = require("FieldRewardSystem")
 local WaveSystem = require("WaveSystem")
 local PlayerItemResolver = require("combat.PlayerItemResolver")
 local KillResolver = require("combat.KillResolver")
-local TalentSystem = require("TalentSystem")
+local ReincarnationSystem = require("ReincarnationSystem")
 local RogueRewardSystem = require("rogue.RogueRewardSystem")
 local Stats = require("combat.Stats")
 local VisualEventQueue = require("events.VisualEventQueue")
@@ -136,12 +136,13 @@ local function RefreshBoard(state, suppressWaveSpawn)
 end
 
 local function ApplyTurnRegen(state)
-    local regenPct = TalentSystem.GetModifierValue(state, "turnRegenPct")
+    local regenPct = RogueRewardSystem.GetModifierValue(state, "turnRegenPct")
+        + ReincarnationSystem.GetValue(state, "turnRegenPct")
     if regenPct <= 0 or state.hp <= 0 then return end
 
     local heal = math.max(1, math.floor(state.maxHp * regenPct))
     local actualHeal = Stats.Heal(state, heal)
-    print(string.format("  [Talent] 回春再生恢复%d气血", actualHeal))
+    print(string.format("  [Regen] 回春恢复%d气血", actualHeal))
 end
 
 local function TriggerFieldRewardSupply(state)

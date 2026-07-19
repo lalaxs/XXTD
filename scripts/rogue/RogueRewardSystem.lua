@@ -1,294 +1,168 @@
 -- rogue/RogueRewardSystem.lua
--- 突破后肉鸽 3 选 1 奖励。奖励写入 state.modifiers，局内生效。
+-- 大境界突破后的本轮肉鸽构筑选择。
 
 local Config = require("Config")
+local BoardSystem = require("BoardSystem")
 local RogueRewardDefs = require("config.RogueRewardDefs")
-local TalentUnlockSystem = require("TalentUnlockSystem")
 
 local RogueRewardSystem = {}
-
-local OFFENSE_OR_DEFENSE = {
-    ["攻势"] = true,
-    ["守势"] = true,
-}
 
 local function EnsureTables(state)
     state.modifiers = state.modifiers or {}
     state.selectedRogueRewards = state.selectedRogueRewards or {}
     state.rogueRewardHistory = state.rogueRewardHistory or {}
-    TalentUnlockSystem.EnsureDefaults(state)
+    state.runWeapons = state.runWeapons or { qingfeng_sword = true }
+    state.weaponUpgradeLevels = state.weaponUpgradeLevels or {}
 end
 
-local function GetRealmScale(state, def)
-    if not def.scalable then return 1.0 end
-    local majorIndex = Config.GetRealmMajorIndex(state.realmIndex or 1)
-    if majorIndex < 5 then return 1.0 end
-    return 1.0 + 0.15 * (majorIndex - 4)
+local function CountRunWeapons(state)
+    local count = 0
+    for _, enabled in pairs(state.runWeapons or {}) do
+        if enabled then count = count + 1 end
+    end
+    return count
 end
 
-local function CopyModifier(modifier, scale)
-    if not modifier then return nil end
+local function GetRewardLevel(state, rewardId)
+    return state.selectedRogueRewards[rewardId] or 0
+end
+
+local function IsAvailable(state, def)
+    local level = GetRewardLevel(state, def.id)
+    if level >= (def.maxStacks or 1) then return false end
+    if def.kind == "unlock" then
+        return not state.runWeapons[def.weaponId] and CountRunWeapons(state) < Config.ROGUE.MAX_WEAPONS
+    end
+    if def.kind == "weapon" then
+        return state.runWeapons[def.weaponId] == true
+    end
+    return true
+end
+
+local function CopyReward(state, def)
+    local level = GetRewardLevel(state, def.id)
     return {
-        stat = modifier.stat,
-        value = (modifier.value or 0) * (scale or 1.0),
-    }
-end
-
-local function CopyReward(def, state)
-    local scale = GetRealmScale(state, def)
-    local copied = {
         id = def.id,
         name = def.name,
         category = def.category,
         desc = def.desc,
-        modifier = CopyModifier(def.modifier, scale),
-        extraModifiers = {},
+        kind = def.kind,
+        weaponId = def.weaponId,
+        modifier = def.modifier and { stat = def.modifier.stat, value = def.modifier.value } or nil,
+        level = level,
+        nextLevel = level + 1,
+        maxStacks = def.maxStacks or 1,
+        immediate = def.immediate == true,
     }
-    for _, modifier in ipairs(def.extraModifiers or {}) do
-        table.insert(copied.extraModifiers, CopyModifier(modifier, scale))
-    end
-    return copied
 end
 
-local function Shuffle(list)
-    for i = #list, 2, -1 do
-        local j = math.random(i)
-        list[i], list[j] = list[j], list[i]
-    end
-end
-
-local function IsItemUnlocked(state, category, baseId)
-    local unlocked = state.unlockedPools and state.unlockedPools[category]
-    return unlocked and unlocked[baseId] == true
-end
-
-local function HasAnyUnlocked(state, category)
-    local unlocked = state.unlockedPools and state.unlockedPools[category]
-    if not unlocked then return false end
-    for _, enabled in pairs(unlocked) do
-        if enabled then return true end
-    end
-    return false
-end
-
-local function HasWeaponSchool(state, school)
-    return state.unlockedWeaponSchools and state.unlockedWeaponSchools[school] == true
-end
-
-local function HasAnyUnlockedBaseId(state, category, baseIds)
-    for _, baseId in ipairs(baseIds or {}) do
-        if IsItemUnlocked(state, category, baseId) then
-            return true
+local function WeightedPick(candidates, picked, predicate)
+    local options, total = {}, 0
+    for _, def in ipairs(candidates) do
+        if not picked[def.id] and (not predicate or predicate(def)) then
+            local weight = math.max(1, def.weight or 1)
+            total = total + weight
+            table.insert(options, { def = def, edge = total })
         end
     end
-    return false
-end
-
-local function HasHighQualityWeapon(state)
-    for slotIdx = 1, Config.TOTAL_SLOTS do
-        local item = state.slots and state.slots[slotIdx]
-        if item and item.itemType == Config.ITEM_TYPE.ATTACK and (item.quality or 0) >= 5 then
-            return true
-        end
+    if total <= 0 then return nil end
+    local roll = math.random() * total
+    for _, option in ipairs(options) do
+        if roll <= option.edge then return option.def end
     end
-
-    for _, item in ipairs(state.dropQueue or {}) do
-        if item and item.itemType == Config.ITEM_TYPE.ATTACK and (item.quality or 0) >= 5 then
-            return true
-        end
-    end
-
-    return false
-end
-
-local function IsPrereqMet(state, prereq)
-    if not prereq then return true end
-
-    if prereq.type == "anyWeapon" then
-        return HasAnyUnlocked(state, Config.ITEM_CATEGORY.WEAPON)
-    elseif prereq.type == "anyArmor" then
-        return HasAnyUnlocked(state, Config.ITEM_CATEGORY.ARMOR)
-    elseif prereq.type == "anyPill" then
-        return HasAnyUnlocked(state, Config.ITEM_CATEGORY.PILL)
-    elseif prereq.type == "anyTalisman" then
-        return HasAnyUnlocked(state, Config.ITEM_CATEGORY.TALISMAN)
-    elseif prereq.type == "weaponSchool" then
-        return HasWeaponSchool(state, prereq.school)
-    elseif prereq.type == "weaponBaseAny" then
-        return HasAnyUnlockedBaseId(state, Config.ITEM_CATEGORY.WEAPON, prereq.baseIds)
-    elseif prereq.type == "item" then
-        return IsItemUnlocked(state, prereq.category, prereq.baseId)
-    elseif prereq.type == "highQualityWeapon" then
-        return HasHighQualityWeapon(state)
-    end
-
-    return true
-end
-
-local function ExpandDynamicRewardDefs(state, def)
-    if def.dynamic ~= "weaponSchoolSpecialization" then
-        return { def }
-    end
-
-    local defs = {}
-    for _, variant in ipairs(def.variants or {}) do
-        if HasWeaponSchool(state, variant.school) then
-            table.insert(defs, {
-                id = def.id .. "_" .. variant.school,
-                name = def.name .. "·" .. variant.label,
-                category = def.category,
-                desc = variant.desc or def.desc,
-                power = def.power,
-                scalable = def.scalable,
-                modifier = {
-                    stat = "schoolDamagePct:" .. variant.school,
-                    value = 0.18,
-                },
-            })
-        end
-    end
-    return defs
-end
-
-local function ForEachAvailableRewardDef(state, callback)
-    for _, def in ipairs(RogueRewardDefs) do
-        if def.dynamic then
-            for _, dynamicDef in ipairs(ExpandDynamicRewardDefs(state, def)) do
-                callback(dynamicDef)
-            end
-        elseif IsPrereqMet(state, def.prereq) then
-            callback(def)
-        end
-    end
-end
-
-local function GetWeightForRealm(def, realmIndex)
-    local power = def.power or "small"
-    if realmIndex >= 5 then
-        if power == "large" then return 4 end
-        if power == "medium" then return 3 end
-        return 2
-    end
-
-    if power == "large" then return 1 end
-    if power == "medium" then return 2 end
-    return 3
+    return options[#options].def
 end
 
 local function BuildCandidates(state)
     local candidates = {}
-    local weighted = {}
-    local majorIndex = Config.GetRealmMajorIndex(state.realmIndex or 1)
-
-    ForEachAvailableRewardDef(state, function(def)
-        if not state.selectedRogueRewards[def.id] then
-            table.insert(candidates, def)
-            local weight = GetWeightForRealm(def, majorIndex)
-            for _ = 1, weight do
-                table.insert(weighted, def)
+    local major = Config.GetRealmMajorIndex(state.realmIndex or 1)
+    for _, def in ipairs(RogueRewardDefs) do
+        if IsAvailable(state, def) then
+            local copy = def
+            if def.kind == "unlock" then
+                copy = {}
+                for k, v in pairs(def) do copy[k] = v end
+                copy.weight = major <= 3 and 7 or (major <= 6 and 4 or 2)
+            elseif def.kind == "weapon" then
+                copy = {}
+                for k, v in pairs(def) do copy[k] = v end
+                copy.weight = major <= 2 and 2 or 5
             end
+            table.insert(candidates, copy)
         end
-    end)
-
-    if #candidates == 0 then
-        ForEachAvailableRewardDef(state, function(def)
-            table.insert(candidates, def)
-            table.insert(weighted, def)
-        end)
     end
-
-    return candidates, weighted
+    return candidates
 end
 
-local function ContainsReward(list, rewardId)
-    for _, def in ipairs(list) do
-        if def.id == rewardId then return true end
+local function BuildOffer(state, candidates)
+    local selected, ids, weaponCounts = {}, {}, {}
+    local function canPick(def)
+        if ids[def.id] then return false end
+        return not def.weaponId or (weaponCounts[def.weaponId] or 0) < 1
     end
-    return false
-end
-
-local function PickFromPool(pool, picked, predicate)
-    local options = {}
-    for _, def in ipairs(pool) do
-        if not ContainsReward(picked, def.id) and (not predicate or predicate(def)) then
-            table.insert(options, def)
-        end
-    end
-    if #options == 0 then return nil end
-    return options[math.random(#options)]
-end
-
-local function BuildOffer(candidates, weighted)
-    Shuffle(weighted)
-    local picked = {}
-
-    local first = PickFromPool(weighted, picked)
-    if first then table.insert(picked, first) end
-
-    local firstCategory = first and first.category or nil
-    local second = PickFromPool(weighted, picked, function(def)
-        return def.category ~= firstCategory
-    end) or PickFromPool(weighted, picked)
-    if second then table.insert(picked, second) end
-
-    while #picked < math.min(3, #candidates) do
-        local nextReward = PickFromPool(weighted, picked) or PickFromPool(candidates, picked)
-        if not nextReward then break end
-        table.insert(picked, nextReward)
+    local function add(def)
+        if not def then return false end
+        table.insert(selected, def)
+        ids[def.id] = true
+        if def.weaponId then weaponCounts[def.weaponId] = (weaponCounts[def.weaponId] or 0) + 1 end
+        return true
     end
 
-    local hasOffenseOrDefense = false
-    for _, def in ipairs(picked) do
-        if OFFENSE_OR_DEFENSE[def.category] then
-            hasOffenseOrDefense = true
-            break
-        end
+    local first = WeightedPick(candidates, ids, function(def) return def.immediate and canPick(def) end)
+    add(first)
+    while #selected < math.min(3, #candidates) do
+        local nextDef = WeightedPick(candidates, ids, canPick)
+        if not nextDef then break end
+        add(nextDef)
     end
 
-    if #picked > 0 and not hasOffenseOrDefense then
-        local fallback = PickFromPool(candidates, picked, function(def)
-            return OFFENSE_OR_DEFENSE[def.category]
-        end)
-        if fallback then
-            picked[#picked] = fallback
-        end
+    local commonCount = 0
+    for _, def in ipairs(selected) do if def.kind == "common" then commonCount = commonCount + 1 end end
+    if commonCount >= 3 then
+        local replacement = WeightedPick(candidates, ids, function(def) return def.kind ~= "common" and canPick(def) end)
+        if replacement then selected[#selected] = replacement end
     end
-
-    return picked
+    return selected
 end
 
 function RogueRewardSystem.GetModifierValue(state, stat)
     local total = 0
     for _, modifier in ipairs(state.modifiers or {}) do
-        if modifier.stat == stat then
-            total = total + (modifier.value or 0)
-        end
+        if modifier.stat == stat then total = total + (modifier.value or 0) end
     end
     return total
 end
 
 function RogueRewardSystem.CreateBreakthroughChoices(state)
     EnsureTables(state)
-
-    local candidates, weighted = BuildCandidates(state)
-    local picked = BuildOffer(candidates, weighted)
-
     local choices = {}
-    for _, def in ipairs(picked) do
-        table.insert(choices, CopyReward(def, state))
+    for _, def in ipairs(BuildOffer(state, BuildCandidates(state))) do
+        table.insert(choices, CopyReward(state, def))
     end
-
     state.pendingRogueChoices = choices
     return choices
 end
 
-local function AddModifier(state, modifier)
-    if not modifier then return end
-    table.insert(state.modifiers, modifier)
+local function GrantUnlockWeapon(state, reward)
+    state.runWeapons[reward.weaponId] = true
+    local minQuality = Config.GetDropQualityRange(state.realmIndex or 1)
+    local ItemSystem = require("ItemSystem")
+    local item = ItemSystem.CreateItemByBaseId(state, Config.ITEM_CATEGORY.WEAPON, reward.weaponId, minQuality)
+    if not state.dropQueue[1] then
+        state.dropQueue[1] = item
+    else
+        local emptySlot = BoardSystem.FindEmptySlot(state)
+        if emptySlot then
+            state.slots[emptySlot] = item
+        else
+            state.dropQueue[1] = item
+        end
+    end
+    local qualityName = Config.QUALITY[minQuality] and Config.QUALITY[minQuality].name or "基础品质"
+    print(string.format("[Rogue Unlock] 解锁%s，已获得一把%s法宝", reward.name:gsub("解锁·", ""), qualityName))
 end
 
-local function AddRewardHistory(state, reward)
-    if not reward then return end
+local function AddHistory(state, reward)
     local realm = Config.GetRealm(state.realmIndex)
     table.insert(state.rogueRewardHistory, {
         id = reward.id,
@@ -296,37 +170,31 @@ local function AddRewardHistory(state, reward)
         category = reward.category,
         desc = reward.desc,
         realmIndex = state.realmIndex,
-        realmName = realm and realm.name or nil,
-        modifier = reward.modifier,
-        extraModifiers = reward.extraModifiers,
+        realmName = realm.name,
+        level = reward.nextLevel,
+        maxStacks = reward.maxStacks,
     })
 end
 
 function RogueRewardSystem.SelectChoice(state, rewardId)
     EnsureTables(state)
-
-    local choices = state.pendingRogueChoices or {}
     local picked = nil
-    for _, reward in ipairs(choices) do
-        if reward.id == rewardId then
-            picked = reward
-            break
-        end
+    for _, reward in ipairs(state.pendingRogueChoices or {}) do
+        if reward.id == rewardId then picked = reward break end
     end
+    if not picked then return { ok = false, message = "奖励已失效" } end
 
-    if not picked then
-        return { ok = false, message = "奖励已失效" }
+    if picked.kind == "unlock" then
+        GrantUnlockWeapon(state, picked)
+    elseif picked.modifier then
+        table.insert(state.modifiers, picked.modifier)
     end
-
-    AddModifier(state, picked.modifier)
-    for _, modifier in ipairs(picked.extraModifiers or {}) do
-        AddModifier(state, modifier)
-    end
-    state.selectedRogueRewards[picked.id] = true
-    AddRewardHistory(state, picked)
+    state.selectedRogueRewards[picked.id] = picked.nextLevel
+    if picked.weaponId then state.weaponUpgradeLevels[picked.id] = picked.nextLevel end
+    AddHistory(state, picked)
     state.pendingRogueChoices = nil
     state.pendingRogueEvent = nil
-
+    print(string.format("[Rogue Reward] 选择%s %d/%d", picked.name, picked.nextLevel, picked.maxStacks))
     return { ok = true, reward = picked, message = "获得机缘：" .. picked.name }
 end
 

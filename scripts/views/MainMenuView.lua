@@ -1,5 +1,5 @@
 -- views/MainMenuView.lua
--- 右下角功能入口弹窗：天赋 / 设置 / 当前难度 / 放弃当前轮回。
+-- 右下角功能入口弹窗：轮回强化 / 机缘 / 设置 / 放弃当前轮回。
 
 local UI = require("urhox-libs/UI")
 local StatusPresenter = require("views.StatusPresenter")
@@ -264,9 +264,9 @@ function MainMenuView.Create(callbacks)
                             UI.Panel {
                                 width = "48%",
                                 children = {
-                                    MakeButton("天赋", COLORS.button, function()
+                                    MakeButton("轮回强化", COLORS.button, function()
                                         self:Hide()
-                                        if self.callbacks.onTalent then self.callbacks.onTalent() end
+                                        if self.callbacks.onReincarnation then self.callbacks.onReincarnation() end
                                     end),
                                 },
                             },
@@ -310,8 +310,8 @@ end
 function MainMenuView:Show(state)
     local difficulty = state and (state.difficulty or 1) or 1
     local reincarnation = state and (state.reincarnationCount or 0) or 0
-    local talentPoints = state and (state.talentPoints or 0) or 0
-    self.infoLabel:SetText(string.format("难度 %d · 轮回 %d · 可用天赋点 %d", difficulty, reincarnation, talentPoints))
+    local points = state and (state.reincarnationPoints or 0) or 0
+    self.infoLabel:SetText(string.format("难度 %d · 轮回 %d · 轮回点 %d", difficulty, reincarnation, points))
     self.opportunityButton:SetText(GetOpportunityButtonText(state))
     RebuildStatusArea(self.statusArea, state)
     self.root:SetVisible(true)

@@ -1,6 +1,7 @@
 local Config = require("Config")
 local FieldRewardService = require("rewards.FieldRewardService")
 local RogueRewardSystem = require("rogue.RogueRewardSystem")
+local ReincarnationSystem = require("ReincarnationSystem")
 
 local FieldRewardSystem = {}
 
@@ -226,17 +227,6 @@ function FieldRewardSystem.MoveFieldRewards(state)
     end
 end
 
-local function ApplyReincarnationQualityBonus(state, quality, maxQuality)
-    local count = math.max(0, state.reincarnationCount or 0)
-    if count <= 0 or quality >= maxQuality then return quality end
-
-    local chance = math.min(Config.REINCARNATION_DROP_QUALITY_CHANCE_CAP or 0.30, count * (Config.REINCARNATION_DROP_QUALITY_CHANCE or 0.05))
-    if math.random() < chance then
-        return math.min(maxQuality, quality + 1)
-    end
-    return quality
-end
-
 function FieldRewardSystem.RollRewardQuality(state)
     local shift = math.floor(RogueRewardSystem.GetModifierValue(state, "fieldRewardQualityShift"))
     local minQuality, maxQuality = Config.GetDropQualityRange(state.realmIndex or 1)
@@ -257,11 +247,18 @@ function FieldRewardSystem.RollRewardQuality(state)
             acc = acc + math.max(0, entry.weight or 0)
             if roll <= acc then
                 local shiftedQuality = math.min(maxQuality, math.max(minQuality, quality + shift))
-                return ApplyReincarnationQualityBonus(state, shiftedQuality, maxQuality)
+                if shiftedQuality < maxQuality and math.random() < ReincarnationSystem.GetValue(state, "rewardQuality") then
+                    shiftedQuality = shiftedQuality + 1
+                end
+                return shiftedQuality
             end
         end
     end
-    return ApplyReincarnationQualityBonus(state, math.min(maxQuality, math.max(minQuality, minQuality + shift)), maxQuality)
+    local fallbackQuality = math.min(maxQuality, math.max(minQuality, minQuality + shift))
+    if fallbackQuality < maxQuality and math.random() < ReincarnationSystem.GetValue(state, "rewardQuality") then
+        fallbackQuality = fallbackQuality + 1
+    end
+    return fallbackQuality
 end
 
 local function PickFallbackCell(state)

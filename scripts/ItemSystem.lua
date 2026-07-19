@@ -2,7 +2,6 @@ local Config = require("Config")
 local RealmSystem = require("RealmSystem")
 local BoardSystem = require("BoardSystem")
 local ItemPoolService = require("items.ItemPoolService")
-local TalentUnlockSystem = require("TalentUnlockSystem")
 local RogueRewardSystem = require("rogue.RogueRewardSystem")
 
 local ItemSystem = {}
@@ -110,19 +109,7 @@ function ItemSystem.SpawnRandomItem(state)
     return true
 end
 
-local function ApplyReincarnationQualityBonus(state, quality, maxQuality)
-    local count = math.max(0, state.reincarnationCount or 0)
-    if count <= 0 or quality >= maxQuality then return quality end
-
-    local chance = math.min(Config.REINCARNATION_DROP_QUALITY_CHANCE_CAP or 0.30, count * (Config.REINCARNATION_DROP_QUALITY_CHANCE or 0.05))
-    if math.random() < chance then
-        return math.min(maxQuality, quality + 1)
-    end
-    return quality
-end
-
 function ItemSystem.GenerateRandomItem(state)
-    TalentUnlockSystem.EnsureDefaults(state)
 
     local categoryWeights = Config.DROP_RULES.CATEGORY_WEIGHTS or {}
     local totalCategoryWeight = 0
@@ -173,7 +160,7 @@ function ItemSystem.GenerateRandomItem(state)
         end
     end
 
-    return ItemSystem.CreateItemByCategory(state, category, ApplyReincarnationQualityBonus(state, quality, maxQuality))
+    return ItemSystem.CreateItemByCategory(state, category, quality)
 end
 
 function ItemSystem.CreateItem(state, itemType, quality)
@@ -234,7 +221,7 @@ end
 
 function ItemSystem.CreateItemByBaseId(state, category, baseId, quality)
     quality = ClampQuality(quality)
-    local def = ItemPoolService.GetDefinitionByBaseId(category, quality, baseId, state)
+    local def = ItemPoolService.GetDefinitionByBaseId(category, quality, baseId, state, { ignoreWeaponUnlock = true })
     assert(def, "Missing item definition: " .. tostring(category) .. ":" .. tostring(baseId))
 
     local itemType = ItemPoolService.GetItemTypeByCategory(category)

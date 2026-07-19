@@ -5,8 +5,8 @@ local Config = require("Config")
 local ItemSystem = require("ItemSystem")
 local PlayerItemResolver = require("combat.PlayerItemResolver")
 local KillResolver = require("combat.KillResolver")
-local TalentUnlockSystem = require("TalentUnlockSystem")
 local VisualState = require("VisualState")
+local ReincarnationSystem = require("ReincarnationSystem")
 
 local GameState = {}
 
@@ -22,18 +22,17 @@ function GameState.New()
         realmIndex = 1,  -- 当前境界索引
         lastPillHp = Config.REALMS[1].maxHp,  -- 丹药触发HP基准点
         
-        -- 天赋点（永久存档，轮回/重置不清空）
-        talentPoints = 1,
+        -- 局外轮回强化（跨重开保留）
+        reincarnationPoints = 0,
+        reincarnationUpgrades = {},
         reincarnationCount = 0,
+
+        -- 本轮肉鸽构筑
+        runWeapons = { qingfeng_sword = true },
+        weaponUpgradeLevels = {},
         modifiers = {},
         selectedRogueRewards = {},
         rogueRewardHistory = {},
-        purchasedTalents = {},
-        spentTalentPoints = 0,
-        talentModifiers = {},
-        talentVariants = {},
-        unlockedPools = {},
-        unlockedWeaponSchools = {},
         pendingRogueChoices = nil,
         pendingRogueEvent = nil,
         lastBreakthroughEvent = nil,
@@ -46,7 +45,6 @@ function GameState.New()
         realmWaveIndex = 0,
         forceSpawnNextTurn = false,
         difficulty = 1,
-        difficultyTalentBonus = 0,
         maxUnlockedDifficulty = 1,
         runSeed = os.time(),
         deathSaveRatio = 0,
@@ -99,7 +97,7 @@ function GameState.New()
         turnLog = {},           -- 回合日志
     }
     
-    TalentUnlockSystem.EnsureDefaults(state)
+    ReincarnationSystem.EnsureState(state)
 
     -- 初始化空格子
     for i = 1, Config.TOTAL_SLOTS do

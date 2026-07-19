@@ -5,7 +5,7 @@ local Config = require("Config")
 local BuffSystem = require("BuffSystem")
 local FieldRewardService = require("rewards.FieldRewardService")
 local RogueRewardSystem = require("rogue.RogueRewardSystem")
-local TalentSystem = require("TalentSystem")
+local ReincarnationSystem = require("ReincarnationSystem")
 local GameEvents = require("GameEvents")
 local VisualEventQueue = require("events.VisualEventQueue")
 
@@ -168,15 +168,16 @@ local function UpgradeAreaPattern(pattern)
     return "adjacent_col_same_row"
 end
 
+local function GetWeaponModifier(state, item, key)
+    return RogueRewardSystem.GetModifierValue(state, key .. ":" .. tostring(item.baseId))
+end
+
 local function CollectAttackTargets(state, item, col)
     local mode = item.attackMode or "single"
 
     if mode == "pierce" then
         local pierceCount = item.pierceCount or 0
-        pierceCount = pierceCount + RogueRewardSystem.GetModifierValue(state, "pierceBonus")
-        if item.school == "spear" and state.talentVariants and state.talentVariants.spear == "break" and item.baseId == "pozhen_spear" then
-            pierceCount = pierceCount + 1
-        end
+        pierceCount = pierceCount + GetWeaponModifier(state, item, "pierceBonus")
         return CollectSameColumnTargets(state, col, pierceCount >= 99 and 99 or (1 + pierceCount), 0.8)
     end
 
@@ -186,17 +187,14 @@ local function CollectAttackTargets(state, item, col)
 
     local centerRow = primary.row
     if mode == "sweep" then
-        local splashRatio = (item.splashRatio or 0.5) + RogueRewardSystem.GetModifierValue(state, "sweepSplashPct")
-        if item.school == "chain" and state.talentVariants and state.talentVariants.chain == "chain" and item.baseId == "double_blade_chain" then
-            splashRatio = splashRatio + 0.10
-        end
+        local splashRatio = (item.splashRatio or 0.5) + GetWeaponModifier(state, item, "sweepSplashPct")
         if item.baseId == "qingyu_fan" and (item.quality or 0) >= 7 then
             splashRatio = math.max(splashRatio, 1.0)
         end
         return CollectPatternTargets(state, primary.col or col, centerRow, "adjacent_col_same_row", 1.0, splashRatio)
     elseif mode == "area" or mode == "guardian" then
         local pattern = item.areaPattern or "same_col_adjacent"
-        if RogueRewardSystem.GetModifierValue(state, "areaRangeBonus") > 0 then
+        if GetWeaponModifier(state, item, "areaRangeBonus") > 0 then
             pattern = UpgradeAreaPattern(pattern)
         end
         return CollectPatternTargets(state, primary.col or col, centerRow, pattern, 1.0, mode == "guardian" and 0.80 or 0.50)
@@ -213,21 +211,16 @@ local function CollectAttackTargets(state, item, col)
     return targets
 end
 
-local function GetSchoolDamageBonus(state, item)
-    local school = item.school
-    if not school then return 0 end
-    return RogueRewardSystem.GetModifierValue(state, "schoolDamagePct:" .. school)
+local function GetWeaponDamageBonus(state, item)
+    return RogueRewardSystem.GetModifierValue(state, "weaponDamagePct")
+        + GetWeaponModifier(state, item, "weaponDamagePct")
+        + ReincarnationSystem.GetValue(state, "attack")
 end
 
-local function GetTalentAttackBonus(state)
-    return TalentSystem.GetModifierValue(state, "talentWeaponDamagePct")
-end
-
-local function GetTalentExtraAttackChance(state, item)
+local function GetExtraAttackChance(state, item)
     local atkSpeed = item.atkSpeed or 1.0
     local buffBonus = BuffSystem.GetBuffValue(state, "atkSpeedUp")
-    local talentBonus = TalentSystem.GetModifierValue(state, "weaponAttackSpeedPct")
-    return math.max(0, atkSpeed * (1 + buffBonus + talentBonus) - 1)
+    return math.max(0, atkSpeed * (1 + buffBonus) - 1)
 end
 
 local function GetPlayerAttackDebuff(state)
@@ -240,30 +233,21 @@ local function CalculateBaseDamage(state, item, realm, slotIdx)
     local baseDmg = item.atk or item.power or 0
     local finalDmg = math.floor(baseDmg * realm.atkMul)
     local didCrit = false
-    local critChance = (item.crit or 0) + TalentSystem.GetModifierValue(state, "weaponCritChance")
+    local critChance = (item.crit or 0)
+        + ReincarnationSystem.GetValue(state, "critChance")
+        + RogueRewardSystem.GetModifierValue(state, "critChance")
+        + GetWeaponModifier(state, item, "critChance")
     if math.random() < critChance then
         didCrit = true
-        local critMultiplier = item.critMultiplier or 2.0
-        if item.school == "sword" and state.talentVariants and state.talentVariants.sword == "sharp" and item.baseId == "qingfeng_sword" then
-            critMultiplier = math.max(critMultiplier, 2.3)
-        end
-        critMultiplier = critMultiplier + RogueRewardSystem.GetModifierValue(state, "critDamagePct")
+        local critMultiplier = (item.critMultiplier or 2.0) + RogueRewardSystem.GetModifierValue(state, "critDamagePct") + GetWeaponModifier(state, item, "critDamagePct")
         finalDmg = math.floor(finalDmg * critMultiplier)
     end
 
     local atkBuff = BuffSystem.GetBuffValue(state, "atkUp")
     local allBuff = BuffSystem.GetBuffValue(state, "allUp")
-    local rogueDamageBuff = RogueRewardSystem.GetModifierValue(state, "weaponDamagePct")
-    local schoolDamageBuff = GetSchoolDamageBonus(state, item)
-    local talentAttackBuff = GetTalentAttackBonus(state)
-    local globalDamageMul = 1 + atkBuff + allBuff + rogueDamageBuff + talentAttackBuff
-    finalDmg = math.floor(finalDmg * globalDamageMul * (1 + schoolDamageBuff))
-
-    if item.baseId == "zhenyao_tower" and state.talentVariants and state.talentVariants.tower == "suppress" then
-        finalDmg = math.floor(finalDmg * 1.20)
-    elseif item.baseId == "huxin_pearl" and state.talentVariants and state.talentVariants.guardian == "light" then
-        finalDmg = math.floor(finalDmg * 1.20)
-    end
+    local weaponDamageBuff = GetWeaponDamageBonus(state, item)
+    local globalDamageMul = 1 + atkBuff + allBuff + weaponDamageBuff
+    finalDmg = math.floor(finalDmg * globalDamageMul)
 
     local playerAttackDown = GetPlayerAttackDebuff(state)
     if playerAttackDown > 0 then
@@ -282,11 +266,7 @@ end
 local function ApplyMonsterDamageModifiers(state, item, monster, damage)
     local rawDmg = damage
     local monsterDefense = math.max(0, monster.defense or 0)
-    local ignoreDefense = item.defIgnore or 0
-    if item.baseId == "pozhen_spear" and state.talentVariants and state.talentVariants.spear == "break" then
-        ignoreDefense = ignoreDefense + 0.20
-    end
-    ignoreDefense = math.min(1.0, ignoreDefense)
+    local ignoreDefense = math.min(1.0, (item.defIgnore or 0) + GetWeaponModifier(state, item, "defIgnorePct"))
     local defenseDown = math.min(1.0, monster.defenseDown or 0)
     local effectiveDefense = monsterDefense * (1 - ignoreDefense) * (1 - defenseDown)
     effectiveDefense = math.min(effectiveDefense, rawDmg * 0.5)
@@ -456,10 +436,10 @@ local function ApplyWeaponSpecialEffect(state, item, monster, damage)
 
     local signature = effect.signature or item.signature
     local tier = effect.tier or item.quality or 5
-    local specialMul = 1 + RogueRewardSystem.GetModifierValue(state, "specialEffectPct")
-    local debuffMul = 1 + RogueRewardSystem.GetModifierValue(state, "debuffPowerPct")
-    local durationBonus = RogueRewardSystem.GetModifierValue(state, "debuffDurationBonus")
-    local rootBonus = RogueRewardSystem.GetModifierValue(state, "rootTurnsBonus")
+    local specialMul = 1 + GetWeaponModifier(state, item, "specialEffectPct")
+    local debuffMul = 1 + GetWeaponModifier(state, item, "debuffPowerPct")
+    local durationBonus = GetWeaponModifier(state, item, "debuffDurationBonus")
+    local rootBonus = GetWeaponModifier(state, item, "rootTurnsBonus")
     local extraDmg = 0
 
     local function emitMonsterStatus(target, text, kind)
@@ -507,11 +487,6 @@ local function ApplyWeaponSpecialEffect(state, item, monster, damage)
         end
     elseif signature == "root" or signature == "root_lock" then
         local rootTurns = math.min(5, math.floor(tierValue(1, 2, 3, 4, 5) + rootBonus))
-        if item.baseId == "qingyin_qin" and state.talentVariants and state.talentVariants.magic == "control" then
-            rootTurns = math.min(5, rootTurns + 1)
-        elseif item.baseId == "fuyao_chain" and state.talentVariants and state.talentVariants.chain == "lock" then
-            rootTurns = math.min(5, rootTurns + 2)
-        end
         monster.slowed = 1.0
         monster.rootTurns = math.max(monster.rootTurns or 0, rootTurns)
         emitMonsterStatus(monster, "定身", "control")
@@ -528,9 +503,6 @@ local function ApplyWeaponSpecialEffect(state, item, monster, damage)
         end
     elseif signature == "defense_down" then
         local finalValue = tierValue(0.15, 0.20, 0.25, 0.30, 0.45) * debuffMul * specialMul
-        if item.baseId == "baigu_staff" and state.talentVariants and state.talentVariants.magic == "offense" then
-            finalValue = finalValue + 0.15
-        end
         local turns = effectDuration()
         monster.defenseDown = math.max(monster.defenseDown or 0, finalValue)
         monster.defenseDownTurns = math.max(monster.defenseDownTurns or 0, turns)
@@ -549,15 +521,6 @@ local function ApplyWeaponSpecialEffect(state, item, monster, damage)
     elseif signature == "attack_down" or signature == "attack_down_aura" or signature == "attack_down_area" or signature == "guardian_attack_down" then
         local finalValue = tierValue(0.15, 0.20, 0.25, 0.30, 0.35) * debuffMul * specialMul
         local turns = effectDuration()
-        if item.baseId == "bishui_sword" and state.talentVariants and state.talentVariants.sword == "soft" then
-            turns = turns + 1
-        elseif item.baseId == "zhenyao_tower" and state.talentVariants and state.talentVariants.tower == "soul" then
-            finalValue = finalValue + 0.25
-        elseif item.baseId == "huxin_pearl" and state.talentVariants and state.talentVariants.guardian == "protect" then
-            finalValue = math.max(finalValue, 0.35)
-        elseif (item.baseId == "jinguang_ring" or item.baseId == "zhenyao_tower") and state.talentVariants and state.talentVariants.magic == "control" then
-            finalValue = finalValue + 0.15
-        end
 
         local targets = { monster }
         if tier >= 7 and (item.baseId == "jinguang_ring" or item.baseId == "zhenyao_tower" or item.baseId == "huxin_pearl") then
@@ -575,10 +538,7 @@ local function ApplyWeaponSpecialEffect(state, item, monster, damage)
         end
     elseif signature == "vulnerability" or signature == "wind_mark" then
         local finalValue = tierValue(0.10, 0.15, signature == "wind_mark" and 0.15 or 0.20, signature == "wind_mark" and 0.20 or 0.25, signature == "wind_mark" and 0.25 or 0.30)
-        finalValue = finalValue + RogueRewardSystem.GetModifierValue(state, "vulnerableBonusPct")
-        if item.baseId == "lingmo_brush" and state.talentVariants and state.talentVariants.magic == "control" then
-            finalValue = finalValue + 0.10
-        end
+        finalValue = finalValue + GetWeaponModifier(state, item, "vulnerableBonusPct")
         local turns = effectDuration()
         local targets = { monster }
         if item.baseId == "lingmo_brush" and tier >= 7 then
@@ -594,16 +554,8 @@ local function ApplyWeaponSpecialEffect(state, item, monster, damage)
         end
     elseif signature == "burn" or signature == "poison" then
         local baseDot = signature == "poison" and tierValue(0.15, 0.18, 0.30, 0.40, 0.50) or tierValue(0.15, 0.18, 0.20, 0.25, 0.30)
-        local dotValue = (baseDot + RogueRewardSystem.GetModifierValue(state, "dotDamagePct")) * specialMul
+        local dotValue = (baseDot + GetWeaponModifier(state, item, "dotDamagePct")) * specialMul
         local turns = effectDuration()
-        if item.baseId == "chiyan_spear" and state.talentVariants and state.talentVariants.spear == "flame" then
-            turns = turns + 2
-            dotValue = dotValue + 0.10
-        elseif item.baseId == "ziqi_gourd" and state.talentVariants and state.talentVariants.magic == "offense" then
-            turns = turns + 1
-        elseif item.baseId == "huxin_pearl" and state.talentVariants and state.talentVariants.guardian == "light" then
-            dotValue = dotValue + 0.20
-        end
         local dotDamage = math.max(1, math.floor(damage * dotValue))
         applyDot(monster, dotDamage, turns)
 
@@ -625,14 +577,7 @@ local function ApplyWeaponSpecialEffect(state, item, monster, damage)
             end
         end
     elseif signature == "pull" or signature == "knockback" then
-        local distance = 1
-        if item.baseId == "double_blade_chain" and state.talentVariants and state.talentVariants.chain == "chain" then
-            distance = 2
-        elseif item.baseId == "taiji_sword" and state.talentVariants and state.talentVariants.sword == "soft" then
-            distance = 2
-        elseif (item.quality or 0) >= 7 then
-            distance = 2
-        end
+        local distance = 1 + GetWeaponModifier(state, item, "displaceBonus")
         if signature == "pull" then
             monster.row = math.min(Config.FIELD_ROWS, monster.row + distance)
             emitMonsterStatus(monster, "拉拽", "control")
@@ -756,9 +701,9 @@ local function ResolveAttackItem(state, item, slotIdx, col, realm, silenced)
     ResolveAttackItemOnce(state, item, slotIdx, col, realm, silenced)
     if silenced then return end
 
-    local extraChance = GetTalentExtraAttackChance(state, item)
+    local extraChance = GetExtraAttackChance(state, item)
     if extraChance > 0 and math.random() < extraChance then
-        print(string.format("  [Talent] %s 触发追加出手", item.name))
+        print(string.format("  [Attack] %s 触发追加出手", item.name))
         ResolveAttackItemOnce(state, item, slotIdx, col, realm, false)
     end
 end

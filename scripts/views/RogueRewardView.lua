@@ -25,7 +25,9 @@ local COLORS = {
 }
 
 local CATEGORY_COLOR = {
-    ["攻势"] = COLORS.red,
+    ["解锁"] = COLORS.gold,
+    ["专属"] = COLORS.red,
+    ["通用"] = COLORS.blue,
     ["守势"] = COLORS.blue,
     ["续航"] = COLORS.green,
     ["控场"] = COLORS.purple,
@@ -121,7 +123,7 @@ local function CreateRewardCard(reward, onSelect)
             onSelect(reward.id)
         end,
         children = {
-            CreateCategoryBadge(reward.category, color),
+            CreateCategoryBadge(string.format("%s %s", reward.category or "机缘", reward.maxStacks and string.format("%d/%d", reward.nextLevel or 1, reward.maxStacks) or ""), color),
             UI.Label {
                 text = reward.name,
                 width = "100%",
@@ -173,7 +175,7 @@ function RogueRewardView.Create(onSelect)
         textAlign = "center",
     }
     self.subtitle = UI.Label {
-        text = "天赋点 +1",
+        text = "选择一项机缘，构筑本轮法宝流派",
         width = "100%",
         fontSize = 14,
         lineHeight = 1.35,
@@ -248,9 +250,8 @@ function RogueRewardView:Show(event, choices)
     self.choicesPanel:RemoveAllChildren()
 
     local realmName = event and event.realmName or "新境界"
-    local talentGain = event and event.talentGain or 0
     self.title:SetText("突破至" .. realmName)
-    self.subtitle:SetText(string.format("天赋点 +%d", talentGain))
+    self.subtitle:SetText("选择一项机缘，构筑本轮法宝流派")
 
     for _, reward in ipairs(choices or {}) do
         self.choicesPanel:AddChild(CreateRewardCard(reward, self.onSelect))

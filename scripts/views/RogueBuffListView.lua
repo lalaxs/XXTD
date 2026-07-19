@@ -25,7 +25,9 @@ local COLORS = {
 }
 
 local CATEGORY_COLOR = {
-    ["攻势"] = COLORS.red,
+    ["解锁"] = COLORS.gold,
+    ["专属"] = COLORS.red,
+    ["通用"] = COLORS.blue,
     ["守势"] = COLORS.blue,
     ["续航"] = COLORS.green,
     ["控场"] = COLORS.purple,
@@ -129,7 +131,7 @@ local function CreateRewardRow(reward, index)
                                 maxLines = 2,
                             },
                             UI.Label {
-                                text = "获得境界：" .. realmName,
+                                text = string.format("获得境界：%s · 层级 %d/%d", realmName, reward.level or 1, reward.maxStacks or 1),
                                 width = "100%",
                                 fontSize = 12,
                                 fontColor = COLORS.muted,
