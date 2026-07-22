@@ -10,7 +10,9 @@ local RogueRewardView = require("views.RogueRewardView")
 local MainMenuView = require("views.MainMenuView")
 local ReincarnationView = require("views.ReincarnationView")
 local RogueBuffListView = require("views.RogueBuffListView")
+local DebugStatusView = require("views.DebugStatusView")
 local FloatingTextView = require("views.FloatingTextView")
+local DebugStatusSystem = require("debug.DebugStatusSystem")
 local ReincarnationActions = require("actions.ReincarnationActions")
 local GameEvents = require("GameEvents")
 local VisualState = require("VisualState")
@@ -116,6 +118,7 @@ function UIController.Create(state, callbacks)
         mainMenuView = nil,
         reincarnationView = nil,
         rogueBuffListView = nil,
+        debugStatusView = nil,
         floatingTextView = nil,
         dragContext = nil,
         inventoryMgr = nil,
@@ -220,6 +223,68 @@ function UIController.Create(state, callbacks)
         self:UpgradeReincarnation(upgradeId)
     end)
     self.rogueBuffListView = RogueBuffListView.Create()
+    self.debugStatusView = DebugStatusView.Create({
+        onApply = function(statusId)
+            if self.currentState_ and DebugStatusSystem.Apply(self.currentState_, statusId) then
+                self.debugStatusView:Refresh(self.currentState_)
+                self:UpdateAll(self.currentState_)
+            end
+        end,
+        onClear = function()
+            if self.currentState_ then
+                DebugStatusSystem.ClearAll(self.currentState_)
+                self.debugStatusView:Refresh(self.currentState_)
+                self:UpdateAll(self.currentState_)
+            end
+        end,
+    })
+
+    local debugEntry = nil
+    if Config.DEBUG and Config.DEBUG.ENABLE_PLAYER_STATUS_PANEL == true then
+        debugEntry = UI.Button {
+            text = "调试",
+            position = "absolute",
+            top = 12,
+            right = 12,
+            width = 68,
+            height = 36,
+            zIndex = 1100,
+            fontSize = 14,
+            fontWeight = "bold",
+            borderRadius = 10,
+            borderWidth = 2,
+            borderColor = {255, 219, 160, 255},
+            backgroundColor = {165, 62, 50, 245},
+            pressedBackgroundColor = {125, 42, 35, 255},
+            textColor = {255, 245, 230, 255},
+            onClick = function()
+                if self.currentState_ then
+                    self.debugStatusView:Show(self.currentState_)
+                end
+            end,
+        }
+    end
+
+    local gameContainerChildren = {
+        UI.Panel {
+            width = "100%",
+            height = "100%",
+            children = {
+                self.fieldPanel,
+            },
+        },
+        self.floatingTextView:GetRoot(),
+        self.infoPanel:GetRoot(),
+        self.rogueRewardView:GetRoot(),
+        self.mainMenuView:GetRoot(),
+        self.reincarnationView:GetRoot(),
+        self.rogueBuffListView:GetRoot(),
+        self.debugStatusView:GetRoot(),
+        self.gameOverPanel,
+    }
+    if debugEntry then
+        table.insert(gameContainerChildren, debugEntry)
+    end
 
     self.uiRoot = UI.Panel {
         width = "100%",
@@ -230,22 +295,7 @@ function UIController.Create(state, callbacks)
                 id = "gameContainer",
                 width = "100%",
                 height = "100%",
-                children = {
-                    UI.Panel {
-                        width = "100%",
-                        height = "100%",
-                        children = {
-                            self.fieldPanel,
-                        },
-                    },
-                    self.floatingTextView:GetRoot(),
-                    self.infoPanel:GetRoot(),
-                    self.rogueRewardView:GetRoot(),
-                    self.mainMenuView:GetRoot(),
-                    self.reincarnationView:GetRoot(),
-                    self.rogueBuffListView:GetRoot(),
-                    self.gameOverPanel,
-                },
+                children = gameContainerChildren,
             },
             self.dragContext,
         }

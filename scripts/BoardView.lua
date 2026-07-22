@@ -2,6 +2,7 @@
 -- 新版战斗页面：使用拆分 UI 素材拼装完整战斗场景
 
 local UI = require("urhox-libs/UI")
+local Widget = require("urhox-libs/UI/Core/Widget")
 local Config = require("Config")
 local SlotAdapter = require("SlotAdapter")
 local BoardLayout = require("BoardLayout")
@@ -9,6 +10,45 @@ local StatusPresenter = require("views.StatusPresenter")
 local VisualState = require("VisualState")
 
 local BoardView = {}
+
+local ShieldBadge = setmetatable({}, { __index = Widget })
+ShieldBadge.__index = ShieldBadge
+
+function ShieldBadge:new(props)
+    local instance = Widget.new(self, props or {})
+    return instance
+end
+
+setmetatable(ShieldBadge, {
+    __index = Widget,
+    __call = function(cls, props)
+        return cls:new(props)
+    end,
+})
+
+function ShieldBadge:Render(nvg)
+    local l = self:GetAbsoluteLayout()
+    local cx = l.x + l.w * 0.5
+    local cy = l.y + l.h * 0.43
+    local s = math.min(l.w, l.h) * 0.48
+
+    nvgBeginPath(nvg)
+    nvgMoveTo(nvg, cx - s * 0.78, cy - s * 0.48)
+    nvgLineTo(nvg, cx - s * 0.52, cy - s * 0.78)
+    nvgLineTo(nvg, cx, cy - s * 0.62)
+    nvgLineTo(nvg, cx + s * 0.52, cy - s * 0.78)
+    nvgLineTo(nvg, cx + s * 0.78, cy - s * 0.48)
+    nvgBezierTo(nvg,
+        cx + s * 0.72, cy + s * 0.30,
+        cx + s * 0.28, cy + s * 0.72,
+        cx, cy + s * 0.98)
+    nvgClosePath(nvg)
+    nvgFillColor(nvg, nvgRGBA(63, 156, 224, 255))
+    nvgFill(nvg)
+    nvgStrokeColor(nvg, nvgRGBA(22, 73, 122, 255))
+    nvgStrokeWidth(nvg, math.max(2, l.w * 0.055))
+    nvgStroke(nvg)
+end
 
 local DESIGN_W = BoardLayout.DESIGN_W
 local DESIGN_H = BoardLayout.DESIGN_H
@@ -246,11 +286,7 @@ local function AddStatusBars(boardPanel, state, m)
     local maxHp = math.max(1, state.maxHp)
     local hpRatio = Clamp01(state.hp / maxHp)
     local shieldValue = StatusPresenter.GetShieldValue(state)
-    local shieldRatio = Clamp01(shieldValue / maxHp)
     local hpText = tostring(state.hp)
-    if shieldValue > 0 then
-        hpText = hpText .. " +" .. tostring(shieldValue)
-    end
     local hp = D(m.hpBar, m.scale)
     boardPanel:AddChild(UI.Panel {
         position = "absolute",
@@ -286,19 +322,6 @@ local function AddStatusBars(boardPanel, state, m)
             UI.Panel {
                 position = "absolute",
                 left = 0,
-                top = math.floor(hp.h * 0.08 + 0.5),
-                width = tostring(math.floor(shieldRatio * 100)) .. "%",
-                height = math.floor(hp.h * 0.28 + 0.5),
-                backgroundColor = {78, 185, 232, 230},
-                borderRadius = math.floor(10 * m.scale + 0.5),
-                borderWidth = shieldValue > 0 and math.max(1, math.floor(2 * m.scale + 0.5)) or 0,
-                borderColor = {210, 248, 255, 220},
-                visible = shieldValue > 0,
-                pointerEvents = "none",
-            },
-            UI.Panel {
-                position = "absolute",
-                left = 0,
                 top = 0,
                 width = hp.w,
                 height = hp.h,
@@ -318,6 +341,44 @@ local function AddStatusBars(boardPanel, state, m)
             },
         },
     })
+
+    if shieldValue > 0 then
+        local badge = D(m.shieldBadge, m.scale)
+        local shieldText = tostring(shieldValue)
+        local shieldFontSize = 29
+        if #shieldText >= 5 then
+            shieldFontSize = 17
+        elseif #shieldText == 4 then
+            shieldFontSize = 21
+        elseif #shieldText == 3 then
+            shieldFontSize = 25
+        end
+
+        boardPanel:AddChild(ShieldBadge {
+            value = shieldValue,
+            position = "absolute",
+            left = m.originX + badge.x,
+            top = m.originY + badge.y,
+            width = badge.w,
+            height = badge.h,
+            alignItems = "center",
+            justifyContent = "center",
+            pointerEvents = "none",
+            children = {
+                UI.Label {
+                    text = shieldText,
+                    width = "76%",
+                    height = "44%",
+                    fontSize = math.max(9, math.floor(shieldFontSize * m.scale + 0.5)),
+                    fontColor = {255, 246, 218, 255},
+                    fontWeight = "bold",
+                    textAlign = "center",
+                    verticalAlign = "middle",
+                    pointerEvents = "none",
+                },
+            },
+        })
+    end
 
     local realm = Config.GetRealm(state.realmIndex)
     local requiredExp = realm.expRequired or 1
