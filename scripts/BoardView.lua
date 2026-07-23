@@ -42,6 +42,10 @@ function ShieldBadge:Render(nvg)
         cx + s * 0.72, cy + s * 0.30,
         cx + s * 0.28, cy + s * 0.72,
         cx, cy + s * 0.98)
+    nvgBezierTo(nvg,
+        cx - s * 0.28, cy + s * 0.72,
+        cx - s * 0.72, cy + s * 0.30,
+        cx - s * 0.78, cy - s * 0.48)
     nvgClosePath(nvg)
     nvgFillColor(nvg, nvgRGBA(63, 156, 224, 255))
     nvgFill(nvg)
