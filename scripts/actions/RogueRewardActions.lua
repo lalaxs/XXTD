@@ -24,7 +24,7 @@ function RogueRewardActions.Select(state, rewardId)
     if result.ok then
         Stats.RecalculateMaxHp(state, { addDeltaToHp = true })
         RealmSystem.CheckRealmUp(state)
-        if state.shouldSpawnBreakthroughWave then
+        if result.completed and state.shouldSpawnBreakthroughWave then
             state.shouldSpawnBreakthroughWave = false
             WaveSystem.ForceSpawnWave(state)
         elseif not HasPendingRogueChoice(state) and not HasActiveMonster(state) then

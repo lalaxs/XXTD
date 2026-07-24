@@ -56,6 +56,10 @@ function RunLifecycle.ResetOpeningWave(state)
     state.monsters = {}
     state.waveCount = 0
     state.realmWaveIndex = 0
+    state.endlessWaveIndex = 0
+    state.endlessBudget = 0
+    state.endlessKills = 0
+    state.endlessWaveActive = false
     WaveSystem.ForceSpawnWave(state)
 end
 
@@ -64,6 +68,10 @@ function RunLifecycle.StartNewGame(progress)
     state.slots[1] = GameState.CreateItemByBaseId(state, Config.ITEM_CATEGORY.WEAPON, "qingfeng_sword", 1)
     state.waveCount = 0
     state.realmWaveIndex = 0
+    state.endlessWaveIndex = 0
+    state.endlessBudget = 0
+    state.endlessKills = 0
+    state.endlessWaveActive = false
     WaveSystem.ForceSpawnWave(state)
 
     if progress then
@@ -95,10 +103,24 @@ function RunLifecycle.ContinueRun(state)
     state.isGameOver = false
     state.isVictory = false
     state.victoryReason = nil
+    state.settlementType = nil
     state.canContinueRun = false
-    state.hp = state.maxHp
-    state.lastPillHp = state.maxHp
     state.forceSpawnNextTurn = false
+
+    if state.ascensionMode == true then
+        state.isGameOver = false
+        state.isVictory = false
+        state.victoryReason = nil
+        state.settlementType = nil
+        state.endlessWaveIndex = 0
+        state.endlessBudget = 0
+        state.endlessKills = 0
+        state.endlessWaveActive = HasActiveMonster(state)
+        if not HasActiveMonster(state) then
+            WaveSystem.ForceSpawnWave(state)
+        end
+        return state
+    end
 
     if state.shouldSpawnBreakthroughWave then
         state.shouldSpawnBreakthroughWave = false

@@ -50,6 +50,8 @@ function BoardLayout.CalcMetrics(panelW, panelH)
         fieldCellH = fieldCellH,
         deployCellH = deployCellH,
         hpBar = { x = 92, y = 1522, w = 918, h = 40 },
+        coin = { x = 245, y = 36, w = 220, h = 94 },
+        shopEntry = { x = 67, y = 36, w = 150, h = 94 },
         shieldBadge = { x = 26, y = 1496, w = 96, h = 96 },
         expCircle = { x = 690, y = 2054, w = 150, h = 150 },
         decomposeArea = { x = 28, y = 2058, w = 376, h = 148 },

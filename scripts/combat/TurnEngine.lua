@@ -20,6 +20,7 @@ local function ResetTurnEvents(state)
     state.turnLog = {}
     state.lastAttackEvents = {}
     state.lastMonsterAttackEvents = {}
+    state.lastCoinDropEvents = {}
     state.consumableUsesThisTurn = 0
     VisualEventQueue.ClearTurnEvents(state)
 end

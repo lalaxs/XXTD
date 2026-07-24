@@ -7,6 +7,7 @@ local BoardView = require("BoardView")
 local BoardLayout = require("BoardLayout")
 local InfoPanelView = require("InfoPanelView")
 local RogueRewardView = require("views.RogueRewardView")
+local ShopView = require("views.ShopView")
 local MainMenuView = require("views.MainMenuView")
 local ReincarnationView = require("views.ReincarnationView")
 local RogueBuffListView = require("views.RogueBuffListView")
@@ -115,6 +116,7 @@ function UIController.Create(state, callbacks)
         gameOverPanel = nil,
         infoPanel = nil,
         rogueRewardView = nil,
+        shopView = nil,
         mainMenuView = nil,
         reincarnationView = nil,
         rogueBuffListView = nil,
@@ -200,6 +202,23 @@ function UIController.Create(state, callbacks)
             self.callbacks.onSelectRogueReward(rewardId)
         end
     end)
+    self.shopView = ShopView.Create({
+        onBuy = function(itemIndex)
+            if self.callbacks.onBuyShopItem then
+                self.callbacks.onBuyShopItem(itemIndex)
+            end
+        end,
+        onClose = function()
+            if self.callbacks.onCloseShop then
+                self.callbacks.onCloseShop()
+            end
+        end,
+        onRefresh = function()
+            if self.callbacks.onRefreshShop then
+                self.callbacks.onRefreshShop()
+            end
+        end,
+    })
     self.mainMenuView = MainMenuView.Create({
         onReincarnation = function()
             self:ShowReincarnationUpgrades()
@@ -276,6 +295,7 @@ function UIController.Create(state, callbacks)
         self.floatingTextView:GetRoot(),
         self.infoPanel:GetRoot(),
         self.rogueRewardView:GetRoot(),
+        self.shopView:GetRoot(),
         self.mainMenuView:GetRoot(),
         self.reincarnationView:GetRoot(),
         self.rogueBuffListView:GetRoot(),
@@ -413,6 +433,12 @@ function UIController:ShowMonsterInfo(monster)
     self.infoPanel:ShowMonster(monster)
 end
 
+function UIController:ShowShop()
+    if self.shopView and self.currentState_ then
+        self.shopView:Show(self.currentState_)
+    end
+end
+
 function UIController:ShowRealmInfo()
     if self.infoPanel and self.currentState_ then
         self:UpdateInfoPanelAnchor()
@@ -470,8 +496,11 @@ function UIController:UpdateAll(state)
     self:UpdateBoard(state)
     self:ShowFloatingEvents(state)
     self:UpdateRogueRewardView(state)
+    self:UpdateShopView(state)
     if state.isGameOver then
         self:ShowGameOver(state)
+    else
+        self:HideGameOver()
     end
 end
 
@@ -597,9 +626,24 @@ function UIController:UpdateRogueRewardView(state)
 
     local choices = state.pendingRogueChoices
     if choices and #choices > 0 then
-        self.rogueRewardView:Show(state.pendingRogueEvent, choices)
+        self.rogueRewardView:Show(state.pendingRogueEvent, choices, state.pendingRogueStage)
     else
         self.rogueRewardView:Hide()
+    end
+end
+
+function UIController:UpdateShopView(state)
+    if not self.shopView then return end
+    if state.pendingShop then
+        self.shopView:Show(state)
+    else
+        self.shopView:Hide()
+    end
+end
+
+function UIController:RefreshShop(state)
+    if self.shopView and state and state.pendingShop then
+        self.shopView:Refresh(state)
     end
 end
 
@@ -610,6 +654,13 @@ function UIController:UpdateHUD(state)
     self.hpLabel:SetText(tostring(state.hp))
     self.hpBar:SetValue(Clamp01(state.hp / state.maxHp))
     local realm = Config.GetRealm(state.realmIndex)
+    if state.ascensionMode == true then
+        self.realmLabel:SetText("飞升 · 无尽")
+        self.expBar:SetValue(1)
+        self.turnLabel:SetText("无尽第" .. tostring(state.endlessWaveIndex or state.waveCount or 1) .. "波")
+        return
+    end
+
     self.realmLabel:SetText(realm.name)
     local requiredExp = realm.expRequired or 1
     local progress = state.exp / math.max(1, requiredExp)
@@ -642,6 +693,11 @@ function UIController:UpdateBoard(state)
         onFieldRewardClick = function(fieldReward)
             self:ShowFieldRewardInfo(fieldReward)
         end,
+        onShopClick = function()
+            if self.callbacks.onShopClick then
+                self.callbacks.onShopClick()
+            end
+        end,
         onMainMenuClick = function()
             self:ShowMainMenu()
         end,
@@ -665,11 +721,22 @@ function UIController:ShowGameOver(state)
     local restartButton = self.gameOverPanel:FindById("goRestartButton")
 
     if state.isVictory then
-        if title then title:SetText("飞升成功") end
-        if s then s:SetText("积分: " .. state.score) end
-        if r then r:SetText("已通关难度 " .. tostring(state.difficulty or 1)) end
+        if title then
+            title:SetText(state.victoryReason == "ascension_death" and "无尽挑战结束" or "飞升成功")
+        end
+        if s then s:SetText("积分: " .. state.score .. "  击杀: " .. tostring(state.endlessKills or 0)) end
+        if r then
+            r:SetText(state.victoryReason == "ascension_death"
+                and ("无尽波次: " .. tostring(state.endlessWaveIndex or 0))
+                or ("已通关难度 " .. tostring(state.difficulty or 1)))
+        end
 
-        if state.victoryReason == "ascension_failed" then
+        if state.victoryReason == "ascension_death" then
+            if desc then desc:SetText("飞升状态下挑战终止。你可以进入轮回，保留本轮无尽挑战成果。") end
+            if continueButton then continueButton:SetVisible(false) end
+            if reincarnateButton then reincarnateButton:SetVisible(true) end
+            if restartButton then restartButton:SetVisible(false) end
+        elseif state.victoryReason == "ascension_failed" then
             if desc then desc:SetText("你已证得飞升之果，此后战败亦算功成。本轮需要进入轮回。") end
             if continueButton then continueButton:SetVisible(false) end
             if reincarnateButton then reincarnateButton:SetVisible(true) end

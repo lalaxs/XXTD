@@ -127,21 +127,25 @@ for _, def in ipairs(Config.MONSTER_DEFS) do
 end
 
 -- ============================================================================
--- 境界系统（45 小境界）
--- expRequired = 当前小境界突破到下一小境界所需修为；渡劫九重为终局，需求为 0
+-- 境界系统（27 小境界）
+-- 每个大境界统一分为前期、中期、后期；渡劫后期积累完成后进入飞升无尽模式。
+-- expRequired = 当前小境界突破到下一阶段所需修为；渡劫后期仍有独立飞升门槛。
 -- majorBreakthrough = 突破到该小境界时是否属于大境界突破
 -- expBase/expMinorGrowth/expMajorGrowth 控制同一大境界内的小境界修为曲线，避免长回合积累后过早突破
+-- 所有非终局小境界的突破修为统一降低 35%
 -- ============================================================================
+Config.REALM_EXP_REQUIREMENT_MULTIPLIER = 0.65
+
 local REALM_STAGE_SPECS = {
     { name = "练气", stages = { "前期", "中期", "后期" }, expBase = 65, expMul = 1, expMinorGrowth = 1.55, expMajorGrowth = 1.12, maxHp = 100, atkMul = 1.0, defMul = 1.0, pillMul = 1.0, dropMul = 1.00, dropBonus = 0.00 },
-    { name = "筑基", stages = { "一层", "二层", "三层", "四层", "五层", "六层", "七层", "八层", "九层" }, expBase = 60, expMul = 3.4, expMinorGrowth = 1.05, expMajorGrowth = 1.06, maxHp = 120, atkMul = 1.1, defMul = 1.1, pillMul = 1.1, dropMul = 1.05, dropBonus = 0.05 },
-    { name = "金丹", stages = { "前期", "中期", "后期", "圆满" }, expBase = 80, expMul = 12, expMinorGrowth = 1.45, expMajorGrowth = 1.09, maxHp = 150, atkMul = 1.2, defMul = 1.2, pillMul = 1.2, dropMul = 1.10, dropBonus = 0.10 },
-    { name = "元婴", stages = { "前期", "中期", "后期", "圆满" }, expBase = 88, expMul = 30, expMinorGrowth = 1.48, expMajorGrowth = 1.08, maxHp = 180, atkMul = 1.3, defMul = 1.3, pillMul = 1.3, dropMul = 1.15, dropBonus = 0.15 },
-    { name = "化神", stages = { "前期", "中期", "后期", "圆满" }, expBase = 96, expMul = 70, expMinorGrowth = 1.50, expMajorGrowth = 1.07, maxHp = 220, atkMul = 1.4, defMul = 1.4, pillMul = 1.4, dropMul = 1.20, dropBonus = 0.20 },
-    { name = "炼虚", stages = { "前期", "中期", "后期", "圆满" }, expBase = 106, expMul = 160, expMinorGrowth = 1.52, expMajorGrowth = 1.06, maxHp = 260, atkMul = 1.5, defMul = 1.5, pillMul = 1.5, dropMul = 1.25, dropBonus = 0.25 },
-    { name = "合体", stages = { "前期", "中期", "后期", "圆满" }, expBase = 118, expMul = 360, expMinorGrowth = 1.54, expMajorGrowth = 1.05, maxHp = 300, atkMul = 1.6, defMul = 1.6, pillMul = 1.6, dropMul = 1.30, dropBonus = 0.30 },
-    { name = "大乘", stages = { "前期", "中期", "后期", "圆满" }, expBase = 132, expMul = 800, expMinorGrowth = 1.56, expMajorGrowth = 1.04, maxHp = 350, atkMul = 1.7, defMul = 1.7, pillMul = 1.7, dropMul = 1.35, dropBonus = 0.35 },
-    { name = "渡劫", stages = { "一重", "二重", "三重", "四重", "五重", "六重", "七重", "八重", "九重" }, expBase = 150, expMul = 1800, expMinorGrowth = 1.24, expMajorGrowth = 1.03, maxHp = 400, atkMul = 1.8, defMul = 1.8, pillMul = 1.8, dropMul = 1.40, dropBonus = 0.40 },
+    { name = "筑基", stages = { "前期", "中期", "后期" }, expBase = 60, expMul = 3.4, expMinorGrowth = 1.05, expMajorGrowth = 1.06, maxHp = 120, atkMul = 1.1, defMul = 1.1, pillMul = 1.1, dropMul = 1.05, dropBonus = 0.05 },
+    { name = "金丹", stages = { "前期", "中期", "后期" }, expBase = 80, expMul = 12, expMinorGrowth = 1.45, expMajorGrowth = 1.09, maxHp = 150, atkMul = 1.2, defMul = 1.2, pillMul = 1.2, dropMul = 1.10, dropBonus = 0.10 },
+    { name = "元婴", stages = { "前期", "中期", "后期" }, expBase = 88, expMul = 30, expMinorGrowth = 1.48, expMajorGrowth = 1.08, maxHp = 180, atkMul = 1.3, defMul = 1.3, pillMul = 1.3, dropMul = 1.15, dropBonus = 0.15 },
+    { name = "化神", stages = { "前期", "中期", "后期" }, expBase = 96, expMul = 70, expMinorGrowth = 1.50, expMajorGrowth = 1.07, maxHp = 220, atkMul = 1.4, defMul = 1.4, pillMul = 1.4, dropMul = 1.20, dropBonus = 0.20 },
+    { name = "炼虚", stages = { "前期", "中期", "后期" }, expBase = 106, expMul = 160, expMinorGrowth = 1.52, expMajorGrowth = 1.06, maxHp = 260, atkMul = 1.5, defMul = 1.5, pillMul = 1.5, dropMul = 1.25, dropBonus = 0.25 },
+    { name = "合体", stages = { "前期", "中期", "后期" }, expBase = 118, expMul = 360, expMinorGrowth = 1.54, expMajorGrowth = 1.05, maxHp = 300, atkMul = 1.6, defMul = 1.6, pillMul = 1.6, dropMul = 1.30, dropBonus = 0.30 },
+    { name = "大乘", stages = { "前期", "中期", "后期" }, expBase = 132, expMul = 800, expMinorGrowth = 1.56, expMajorGrowth = 1.04, maxHp = 350, atkMul = 1.7, defMul = 1.7, pillMul = 1.7, dropMul = 1.35, dropBonus = 0.35 },
+    { name = "渡劫", stages = { "前期", "中期", "后期" }, expBase = 150, expMul = 1800, expMinorGrowth = 1.24, expMajorGrowth = 1.03, maxHp = 400, atkMul = 1.8, defMul = 1.8, pillMul = 1.8, dropMul = 1.40, dropBonus = 0.40 },
 }
 
 local function RoundNumber(value)
@@ -154,7 +158,7 @@ local function BuildRealmStage(spec, majorIndex, minorIndex)
     local expBase = spec.expBase or 50
     local expMinorGrowth = spec.expMinorGrowth or 1.35
     local expMajorGrowth = spec.expMajorGrowth or 1.0
-    local expRequired = RoundNumber(expBase * spec.expMul * (minorIndex ^ expMinorGrowth) * (expMajorGrowth ^ (majorIndex - 1)))
+    local expRequired = RoundNumber(expBase * spec.expMul * (minorIndex ^ expMinorGrowth) * (expMajorGrowth ^ (majorIndex - 1)) * Config.REALM_EXP_REQUIREMENT_MULTIPLIER)
     local statMul = 1 + 0.12 * progress
 
     return {
@@ -182,8 +186,8 @@ for majorIndex, spec in ipairs(REALM_STAGE_SPECS) do
         table.insert(Config.REALMS, BuildRealmStage(spec, majorIndex, minorIndex))
     end
 end
-Config.REALMS[#Config.REALMS].expRequired = 0
-Config.REALMS[#Config.REALMS].levelExp = 0
+Config.ASCENSION_TRIGGER_REALM_INDEX = #Config.REALMS
+Config.ASCENSION_EXP_REQUIRED = Config.REALMS[#Config.REALMS].expRequired
 
 function Config.GetRealm(realmIndex)
     local index = math.min(#Config.REALMS, math.max(1, realmIndex or 1))
@@ -235,7 +239,7 @@ Config.WAVE_SPAWN = {
     DEFAULT_PITY_INTERVAL = 3,
     CHANCE_GROWTH_PER_TURN = 0.10,
     MAX_SPAWN_CHANCE = 0.90,
-    MINOR_HP_GROWTH = 1.00,
+    MINOR_HP_GROWTH = 0.30,
     MINOR_ATK_GROWTH = 0.45,
     MINOR_DEF_GROWTH = 0.55,
     MINOR_EXP_GROWTH = 0.75,
@@ -260,7 +264,13 @@ Config.MONSTER_EXP_EARLY_MAJOR_BONUS = 0.10
 Config.WAVE_ENEMY_HP_GROWTH = 0.04
 Config.WAVE_ENEMY_ATK_GROWTH = 0.03
 Config.REALM_ENEMY_ATK_SCALE = { 1.0, 1.0, 0.55, 0.72, 0.70, 0.68, 0.66, 0.64, 0.62 }
-Config.ENDLESS_WAVE_BUDGET_GROWTH = 0.18
+Config.ENDLESS_WAVE_BUDGET_GROWTH = 0.08
+Config.ENDLESS_WAVE_HP_GROWTH = 0.035
+Config.ENDLESS_WAVE_ATK_GROWTH = 0.025
+Config.ENDLESS_WAVE_BUDGET_CAP = 1200
+Config.ENDLESS_ACTIVE_LIMIT_CAP = 18
+Config.ENDLESS_START_BUDGET = 260
+Config.ENDLESS_BOSS_INTERVAL = 5
 
 Config.WAVE_PLANS = {
     [1] = { baseBudget = 10, budgetGrowth = 0.10, candidates = { "wild_boar", "shell_imp" } },
@@ -286,10 +296,8 @@ Config.DROP_RULES = {
         { quality = 5, weight = 1 },
     },
     CATEGORY_WEIGHTS = {
-        { category = Config.ITEM_CATEGORY.WEAPON, weight = 45 },
-        { category = Config.ITEM_CATEGORY.ARMOR, weight = 25 },
-        { category = Config.ITEM_CATEGORY.TALISMAN, weight = 20 },
-        { category = Config.ITEM_CATEGORY.PILL, weight = 10 },
+        { category = Config.ITEM_CATEGORY.WEAPON, weight = 65 },
+        { category = Config.ITEM_CATEGORY.ARMOR, weight = 35 },
     },
 }
 
@@ -310,6 +318,24 @@ Config.FIELD_REWARD = {
     RECENT_COLUMN_PENALTY = 2.0,
     MONSTER_PRESSURE_PENALTY = 0.7,
     RANDOM_JITTER = 0.5,
+}
+
+Config.SHOP = {
+    SPAWN_CHANCE = 0.30,
+    ITEM_COUNT = 4,
+    REFRESH_BASE_PRICE = 10,
+    REFRESH_PRICE_STEP = 10,
+    BASE_PRICE = 8,
+    QUALITY_PRICE = { 8, 16, 30, 50, 80, 125, 190, 280, 400 },
+    KILL_COIN_BASE = 2,
+    KILL_COIN_PER_REALM = 2,
+    KILL_COIN_DROP_CHANCE = 0.10,
+    TIER_MULTIPLIER = {
+        [Config.MONSTER_TIER.MINION] = 0.75,
+        [Config.MONSTER_TIER.NORMAL] = 1.0,
+        [Config.MONSTER_TIER.ELITE] = 1.75,
+        [Config.MONSTER_TIER.BOSS] = 3.0,
+    },
 }
 
 Config.SPAWN_POINT_RULES = {
@@ -336,7 +362,8 @@ Config.MERGE_RULES = {
 Config.BUFFER_MAX = 1
 Config.CONSUMABLE_USE_LIMIT = 2
 Config.ROGUE = {
-    MAX_WEAPONS = 6,
+    MAX_WEAPONS = 5,
+    MAX_ARMORS = 5,
 }
 Config.DECOMPOSE_EXP = { 2, 6, 15, 35, 80, 200, 500, 1200, 3000 }
 

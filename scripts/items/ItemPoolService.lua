@@ -69,11 +69,18 @@ end
 
 function ItemPoolService.GetPool(category, quality, state, options)
     local pool = GetDefsPool(category, ClampQuality(quality))
-    if category ~= Config.ITEM_CATEGORY.WEAPON or (options and options.ignoreWeaponUnlock) then
+    if (category ~= Config.ITEM_CATEGORY.WEAPON and category ~= Config.ITEM_CATEGORY.ARMOR)
+        or (options and (options.ignoreUnlock or options.ignoreWeaponUnlock)) then
         return pool
     end
 
-    local unlocked = state and state.runWeapons or { qingfeng_sword = true }
+    local unlocked
+    if category == Config.ITEM_CATEGORY.WEAPON then
+        unlocked = state and state.runWeapons or { qingfeng_sword = true }
+    else
+        unlocked = state and state.runArmors or { dark_iron_shield = true }
+    end
+
     local filtered = {}
     for _, def in ipairs(pool) do
         if unlocked[def.baseId] then

@@ -574,6 +574,29 @@ function InfoPanelView:ShowRealm(state)
         self.useButtonRow:SetVisible(false)
     end
 
+    if state.ascensionMode == true then
+        self.typeLabel:SetText("无尽")
+        self.typeLabel:SetFontColor({171, 109, 46, 255})
+        if self.iconPanel then
+            self.iconPanel:SetStyle({
+                backgroundImage = false,
+                backgroundColor = {245, 219, 172, 255},
+                borderColor = {171, 109, 46, 255},
+            })
+        end
+        self.title:SetText("飞升状态")
+        self.desc:SetText(JoinLines({
+            "当前状态：飞升",
+            "无尽波次：" .. tostring(state.endlessWaveIndex or 0),
+            "累计击杀：" .. tostring(state.endlessKills or 0),
+            "当前强度：" .. tostring(math.floor((state.endlessBudget or 0) + 0.5)),
+            "气血归零后，本轮无尽挑战结束",
+        }))
+        self.timer = 6.0
+        self.root:SetVisible(true)
+        return
+    end
+
     local realmIndex = math.min(#Config.REALMS, math.max(1, state.realmIndex or 1))
     local realm = Config.GetRealm(realmIndex)
     local requiredExp = realm.expRequired or 0

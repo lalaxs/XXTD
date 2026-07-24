@@ -5,7 +5,15 @@ local Effects = {}
 
 local attackEffects_ = {}
 local mergeEffects_ = {}
+local coinEffects_ = {}
 local effectTime_ = 0
+
+local Clamp01
+local Lerp
+local GetBoardMetrics
+local FieldTargetPoint
+local FillPolygon
+local DrawFlatCircle
 
 local vg_ = nil
 local screenW_ = 0
@@ -13,6 +21,8 @@ local screenH_ = 0
 
 local PLAYER_PROJECTILE_FLIGHT = 0.46
 local MONSTER_PROJECTILE_FLIGHT = 0.5
+local COIN_DROP_DURATION = 1.28
+local COIN_DROP_STAGGER = 0.045
 local HIT_HOLD_DURATION = 0.26
 
 local PROJECTILE_OUTLINE = {83, 65, 58}
@@ -85,6 +95,7 @@ local DEFAULT_MONSTER_PROJECTILE_STYLE = { shape = "dart", primary = {190, 90, 1
 function Effects.Reset()
     attackEffects_ = {}
     mergeEffects_ = {}
+    coinEffects_ = {}
     effectTime_ = 0
 end
 
@@ -102,6 +113,100 @@ function Effects.TriggerMerge(category, idx, quality)
     })
 end
 
+function Effects.TriggerCoinDrops(state, startDelay)
+    startDelay = math.max(0, startDelay or 0)
+    for _, drop in ipairs(state and state.lastCoinDropEvents or {}) do
+        local amount = math.max(1, math.floor(drop.amount or 1))
+        local coinCount = math.min(7, math.max(3, math.ceil(amount / 3)))
+        for index = 1, coinCount do
+            table.insert(coinEffects_, {
+                col = drop.col,
+                row = drop.row,
+                index = index,
+                count = coinCount,
+                startTime = effectTime_ + startDelay + (index - 1) * COIN_DROP_STAGGER,
+                duration = COIN_DROP_DURATION,
+            })
+        end
+    end
+end
+
+local function CoinTargetPoint(board)
+    local rect = BoardLayout.ToScreenRect(board, board.coin)
+    return rect.x + rect.w * 0.5, rect.y + rect.h * 0.5
+end
+
+local function CoinDropStartPoint(board, eff)
+    local x, y, cellW, cellH = FieldTargetPoint(board, eff.col, eff.row)
+    if not x then return nil end
+    local spread = cellW * 0.48
+    local angle = (eff.index / math.max(1, eff.count)) * math.pi * 2 + eff.row * 0.7
+    local distance = spread * (0.35 + (eff.index % 3) * 0.22)
+    return x + math.cos(angle) * distance, y + cellH * 0.28 + math.sin(angle) * distance * 0.42
+end
+
+local function DrawCoinShape(cx, cy, radius, rotation, alpha)
+    local width = radius * 0.72
+    local height = radius * 1.18
+    local cosR = math.cos(rotation)
+    local sinR = math.sin(rotation)
+    local function Point(x, y)
+        return {
+            x = cx + x * cosR - y * sinR,
+            y = cy + x * sinR + y * cosR,
+        }
+    end
+
+    local outline = {111, 78, 39}
+    local vertices = {
+        Point(-width, -height),
+        Point(width, -height),
+        Point(width, height),
+        Point(-width, height),
+    }
+    FillPolygon(vertices, {232, 178, 65}, alpha, outline, math.max(1.0, radius * 0.16), alpha)
+    local inner = Point(0, -height * 0.38)
+    DrawFlatCircle(inner.x, inner.y, radius * 0.20, {255, 239, 157}, alpha * 0.9, nil, 0, 0)
+end
+
+local function DrawCoinDropEffects()
+    local board = GetBoardMetrics()
+    if not board then return end
+
+    local targetX, targetY = CoinTargetPoint(board)
+    local remaining = {}
+    for _, eff in ipairs(coinEffects_) do
+        local elapsed = effectTime_ - eff.startTime
+        if elapsed < eff.duration then
+            table.insert(remaining, eff)
+            if elapsed >= 0 then
+                local progress = Clamp01(elapsed / eff.duration)
+                local startX, startY = CoinDropStartPoint(board, eff)
+                if startX and startY then
+                    local scatterEndX = startX + (startX - targetX) * 0.16
+                    local scatterEndY = startY + 18 + (startY - targetY) * 0.05
+                    local x
+                    local y
+                    if progress < 0.38 then
+                        local t = progress / 0.38
+                        x = Lerp(startX, scatterEndX, t)
+                        y = Lerp(startY, scatterEndY, t) - math.sin(t * math.pi) * 28
+                    else
+                        local t = (progress - 0.38) / 0.62
+                        local eased = t * t * (3 - 2 * t)
+                        x = Lerp(scatterEndX, targetX, eased)
+                        y = Lerp(scatterEndY, targetY, eased) - math.sin(t * math.pi) * 34 * (1 - t)
+                    end
+
+                    local radius = math.max(4, board.scale * 9)
+                    local fade = progress > 0.88 and (1 - progress) / 0.12 or 1
+                    DrawCoinShape(x, y, radius, eff.index * 0.7 + effectTime_ * 5, 235 * fade)
+                end
+            end
+        end
+    end
+    coinEffects_ = remaining
+end
 local function IsValidFieldCoord(col, row)
     return col and row
         and col >= 1 and col <= Config.GRID_COLS
@@ -166,7 +271,7 @@ function Effects.TriggerAttack(state)
     return maxDuration, maxFlightDuration
 end
 
-local function Clamp01(value)
+Clamp01 = function(value)
     return math.min(1.0, math.max(0.0, value or 0))
 end
 
@@ -174,11 +279,11 @@ local function ClampAlpha(value)
     return math.min(255, math.max(0, math.floor(value or 0)))
 end
 
-local function Lerp(a, b, t)
+Lerp = function(a, b, t)
     return a + (b - a) * t
 end
 
-local function GetBoardMetrics()
+GetBoardMetrics = function()
     if screenW_ <= 0 or screenH_ <= 0 then return nil end
     return BoardLayout.CalcMetrics(screenW_, screenH_)
 end
@@ -205,7 +310,7 @@ local function StoragePoint(board)
     return DesignRectPoint(board, { x = 430, y = 2065, w = 220, h = 132 })
 end
 
-local function FieldTargetPoint(board, col, row)
+FieldTargetPoint = function(board, col, row)
     col = math.min(Config.GRID_COLS, math.max(1, col or 1))
     row = math.min(Config.FIELD_ROWS, math.max(1, row or 1))
     local cell = BoardLayout.CellRect(board, row, col, false)
@@ -361,7 +466,7 @@ local function BeginPolygon(vertices)
     nvgClosePath(vg_)
 end
 
-local function FillPolygon(vertices, fillColor, fillAlpha, outlineColor, outlineWidth, outlineAlpha)
+FillPolygon = function(vertices, fillColor, fillAlpha, outlineColor, outlineWidth, outlineAlpha)
     if #vertices < 3 then return end
     BeginPolygon(vertices)
     nvgFillColor(vg_, nvgRGBA(fillColor[1], fillColor[2], fillColor[3], ClampAlpha(fillAlpha)))
@@ -374,7 +479,7 @@ local function FillPolygon(vertices, fillColor, fillAlpha, outlineColor, outline
     end
 end
 
-local function DrawFlatCircle(cx, cy, radius, fillColor, fillAlpha, outlineColor, outlineWidth, outlineAlpha)
+DrawFlatCircle = function(cx, cy, radius, fillColor, fillAlpha, outlineColor, outlineWidth, outlineAlpha)
     if radius <= 0 then return end
     if fillColor then
         nvgBeginPath(vg_)
@@ -1073,6 +1178,7 @@ function Effects.Render(vg, state, screenW, screenH)
 
     DrawMergeEffects()
     DrawAttackWaveEffects()
+    DrawCoinDropEffects()
 end
 
 return Effects

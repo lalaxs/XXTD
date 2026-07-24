@@ -537,7 +537,7 @@ local function ApplyArmorHitEffect(state, item, attack, rawDmg, absorbed, blocke
 
     if effect.type == "block" then
         if blocked and (effect.reflectRatio or 0) > 0 then
-            ReflectDamage(state, attack, rawDmg * effect.reflectRatio, item.name)
+            ReflectDamage(state, attack, rawDmg * effect.reflectRatio * (1 + RogueRewardSystem.GetArmorModifierValue(state, "blockReflectPct", item.baseId)), item.name)
         end
     elseif effect.type == "thorns" then
         local reflectMul = 1 + RogueRewardSystem.GetModifierValue(state, "thornsReflectPct")
@@ -545,9 +545,10 @@ local function ApplyArmorHitEffect(state, item, attack, rawDmg, absorbed, blocke
         if (effect.bleedRatio or 0) > 0 then
             reflect = reflect + absorbed * effect.bleedRatio * reflectMul
         end
+        reflect = reflect + rawDmg * RogueRewardSystem.GetArmorModifierValue(state, "thornsBonusPct", item.baseId)
         ReflectDamage(state, attack, reflect, item.name)
     elseif effect.type == "regen" then
-        local heal = effect.onHit or 0
+        local heal = (effect.onHit or 0) * (1 + RogueRewardSystem.GetArmorModifierValue(state, "armorHitHealPct", item.baseId))
         if heal > 0 then
             local actualHeal = Stats.Heal(state, heal)
             print(string.format("  [Armor] %s 受击恢复%d气血", item.name, actualHeal))
@@ -573,7 +574,7 @@ local function ApplyArmorHitEffects(state, defenses, attack, rawDmg, mitigationS
             end
         end
 
-        if effect and effect.type == "block" and math.random() < (effect.blockChance or 0) then
+        if effect and effect.type == "block" and math.random() < math.min(1, (effect.blockChance or 0) + RogueRewardSystem.GetArmorModifierValue(state, "blockChancePct", item.baseId)) then
             blockedByItem = true
             blocked = true
             table.insert(usedNames, item.name .. "(格挡)")
@@ -855,13 +856,15 @@ function MonsterSystem.ApplyArmorTurnEffects(state)
             if effect.type == "turnShield" then
                 local shieldMul = 1 + RogueRewardSystem.GetModifierValue(state, "armorShieldPct")
                 shieldGain = shieldGain + (effect.shield or 0) * shieldMul
-                shieldCap = shieldCap + ((effect.shield or 0) + (effect.carryBonus or 0)) * shieldMul
+                local armorShieldCapBonus = RogueRewardSystem.GetArmorModifierValue(state, "armorShieldCapPct", item.baseId)
+                shieldCap = shieldCap + ((effect.shield or 0) + (effect.carryBonus or 0)) * shieldMul * (1 + armorShieldCapBonus)
             elseif effect.type == "regen" then
-                totalRegen = totalRegen + (effect.perTurn or 0)
+                totalRegen = totalRegen + (effect.perTurn or 0) * (1 + RogueRewardSystem.GetArmorModifierValue(state, "armorRegenPct", item.baseId))
             elseif effect.type == "cleanse" then
+                local cleanseBonus = RogueRewardSystem.GetArmorModifierValue(state, "cleanseCountBonus", item.baseId)
                 cleanseAll = cleanseAll or effect.cleanseAll == true
-                cleanseCount = math.max(cleanseCount, effect.cleanseCount or 0)
-                immunityTurns = math.max(immunityTurns, effect.immunityTurns or 0)
+                cleanseCount = math.max(cleanseCount, (effect.cleanseCount or 0) + cleanseBonus)
+                immunityTurns = math.max(immunityTurns, (effect.immunityTurns or 0) + RogueRewardSystem.GetArmorModifierValue(state, "cleanseImmunityTurns", item.baseId))
             end
         end
     end

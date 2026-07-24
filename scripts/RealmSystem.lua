@@ -25,7 +25,7 @@ function RealmSystem.AddExp(state, amount, options)
     end
 
     local currentRealm = Config.GetRealm(state.realmIndex)
-    if state.realmIndex >= Config.REINCARNATION_REALM_INDEX and state.exp >= (currentRealm.expRequired or 0) then
+    if not state.ascensionMode and state.realmIndex >= Config.REINCARNATION_REALM_INDEX and state.exp >= (currentRealm.expRequired or 0) then
         state.canReincarnate = true
     end
     return finalAmount
@@ -39,20 +39,56 @@ local function ResetRealmBoard(state)
     VisualEventQueue.ClearTurnEvents(state)
 end
 
-function RealmSystem.MarkAscensionVictory(state, reason, options)
-    options = options or {}
+function RealmSystem.EnterAscension(state)
+    if state.ascensionMode == true then return end
+
     state.ascensionAchieved = true
+    state.ascensionMode = true
     state.isVictory = true
     state.isGameOver = true
-    state.victoryReason = reason or "ascension"
+    state.victoryReason = "ascension"
+    state.settlementType = "ascension_reached"
+    state.canContinueRun = true
     state.canReincarnate = true
-    state.canContinueRun = options.canContinue == true
+    state.exp = 0
+    state.endlessWaveIndex = 0
+    state.endlessBudget = 0
+    state.endlessKills = 0
+    state.endlessWaveActive = false
+    state.pendingRogueEvent = nil
+    state.pendingRogueChoices = nil
+    state.shouldSpawnBreakthroughWave = false
+    state.forceSpawnNextTurn = false
     state.maxUnlockedDifficulty = math.min(Config.MAX_DIFFICULTY or 5,
         math.max(state.maxUnlockedDifficulty or 1, (state.difficulty or 1) + 1))
+
+    Stats.RecalculateMaxHp(state)
+    VisualEventQueue.PushDropMessage(state, "渡劫后期突破，飞升成功")
+    print(string.format("[Ascension] 飞升成功，保留当前战场，继续按钮可开启无尽模式；当前敌人=%d",
+        #(state.monsters or {})))
+end
+
+function RealmSystem.FinishAscensionRun(state)
+    state.ascensionAchieved = true
+    state.ascensionMode = false
+    state.isVictory = true
+    state.isGameOver = true
+    state.victoryReason = "ascension_death"
+    state.settlementType = "ascension_death"
+    state.canReincarnate = true
+    state.canContinueRun = false
 end
 
 function RealmSystem.CheckRealmUp(state)
-    while state.realmIndex < #Config.REALMS and not state.pendingRogueChoices do
+    if state.ascensionMode == true then return end
+    if state.realmIndex >= Config.ASCENSION_TRIGGER_REALM_INDEX then
+        if state.exp >= (Config.ASCENSION_EXP_REQUIRED or 0) then
+            RealmSystem.EnterAscension(state)
+        end
+        return
+    end
+
+    while state.realmIndex < Config.ASCENSION_TRIGGER_REALM_INDEX and not state.pendingRogueChoices do
         local currentRealm = Config.GetRealm(state.realmIndex)
         if state.exp < (currentRealm.expRequired or 0) then break end
 
@@ -64,11 +100,7 @@ function RealmSystem.CheckRealmUp(state)
             ResetRealmBoard(state)
         end
 
-        Stats.RecalculateMaxHp(state, { fullHeal = true })
-        local bonusHeal = math.floor(state.maxHp * RogueRewardSystem.GetModifierValue(state, "breakthroughHealPct"))
-        if bonusHeal > 0 then
-            Stats.Heal(state, bonusHeal, { allowOverheal = true })
-        end
+        Stats.RecalculateMaxHp(state)
 
         local breakthroughEvent = {
             realmIndex = state.realmIndex,
@@ -77,12 +109,7 @@ function RealmSystem.CheckRealmUp(state)
         }
         VisualEventQueue.PushBreakthrough(state, breakthroughEvent)
 
-        if state.realmIndex >= #Config.REALMS then
-            RealmSystem.MarkAscensionVictory(state, "ascension", { canContinue = true })
-            state.pendingRogueEvent = nil
-            state.pendingRogueChoices = nil
-            state.shouldSpawnBreakthroughWave = false
-        elseif isMajorBreakthrough then
+        if isMajorBreakthrough then
             state.pendingRogueEvent = breakthroughEvent
             RogueRewardSystem.CreateBreakthroughChoices(state)
         else
@@ -94,17 +121,24 @@ function RealmSystem.CheckRealmUp(state)
         print(string.format("[Realm Up] 境界突破: %s! 气血=%d/%d%s",
             realm.name, state.hp, state.maxHp, isMajorBreakthrough and " 大境界突破" or ""))
     end
+
+    if state.realmIndex >= Config.ASCENSION_TRIGGER_REALM_INDEX
+        and state.exp >= (Config.ASCENSION_EXP_REQUIRED or 0)
+        and not state.pendingRogueChoices then
+        RealmSystem.EnterAscension(state)
+    end
 end
 
 function RealmSystem.HandleDeath(state)
     state.hp = 0
-    if state.realmIndex >= #Config.REALMS or state.ascensionAchieved then
-        RealmSystem.MarkAscensionVictory(state, "ascension_failed", { canContinue = false })
-        print("[Victory] 飞升后气血归零，天命已成，进入轮回结算")
+    if state.ascensionMode == true then
+        RealmSystem.FinishAscensionRun(state)
+        print("[Ascension] 飞升状态下气血归零，进入无尽挑战结算")
     else
         state.isVictory = false
         state.isGameOver = true
         state.victoryReason = "failed"
+        state.settlementType = "failed"
         state.canContinueRun = false
         print("[GameOver] 气血归零，本轮直接重开")
     end

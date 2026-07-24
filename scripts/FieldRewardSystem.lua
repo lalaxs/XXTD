@@ -276,20 +276,26 @@ end
 
 local function CreateRewardAtCell(state, col, row, sourceLabel)
     local rewardQuality = FieldRewardSystem.RollRewardQuality(state)
-    local rewardItem = FieldRewardService.CreateRewardItem(state, rewardQuality)
-    if not rewardItem then return false end
-
-    table.insert(state.fieldRewards, {
+    local fieldEntity = {
+        id = string.format("field_%d_%d_%d", state.turn or 0, col, math.random(1000000)),
+        entityType = "reward",
         col = col,
         row = row,
         hp = Config.FIELD_REWARD.HP or 1,
-        quality = rewardItem.quality or rewardQuality,
-        rewardItem = rewardItem,
-    })
+        quality = rewardQuality,
+        rewardItem = nil,
+    }
+
+    local rewardItem = FieldRewardService.CreateRewardItem(state, rewardQuality)
+    if not rewardItem then return false end
+    fieldEntity.quality = rewardItem.quality or rewardQuality
+    fieldEntity.rewardItem = rewardItem
+
+    table.insert(state.fieldRewards, fieldEntity)
 
     state.fieldRewardTurnsSinceSpawn = 0
     PushRecentRewardColumn(state, col)
-    print(string.format("  [Spawn] %s刷新在第%d列第%d行：%s", sourceLabel or "随机奖励", col, row, rewardItem.name or "未知道具"))
+    print(string.format("  [Spawn] %s刷新在第%d列第%d行：%s", sourceLabel or "随机奖励", col, row, fieldEntity.rewardItem.name or "未知道具"))
     return true
 end
 

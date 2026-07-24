@@ -19,6 +19,7 @@ function GameState.New()
         hp = Config.REALMS[1].maxHp,
         maxHp = Config.REALMS[1].maxHp,
         exp = Config.PLAYER.BASE_EXP,
+        coins = 0,
         realmIndex = 1,  -- 当前境界索引
         lastPillHp = Config.REALMS[1].maxHp,  -- 丹药触发HP基准点
         
@@ -29,6 +30,7 @@ function GameState.New()
 
         -- 本轮肉鸽构筑
         runWeapons = { qingfeng_sword = true },
+        runArmors = { dark_iron_shield = true },
         weaponUpgradeLevels = {},
         modifiers = {},
         selectedRogueRewards = {},
@@ -43,6 +45,10 @@ function GameState.New()
         waveTurnProgress = 0,  -- 独立的波次进度（领取场上奖励不计入）
         waveTurnsSinceSpawn = 0,
         realmWaveIndex = 0,
+        endlessWaveIndex = 0,
+        endlessBudget = 0,
+        endlessKills = 0,
+        endlessWaveActive = false,
         forceSpawnNextTurn = false,
         difficulty = 1,
         maxUnlockedDifficulty = 1,
@@ -62,8 +68,10 @@ function GameState.New()
         monsters = {},
         
         -- 场上奖励列表
-        -- 每个场上奖励: {col, row, hp, quality, rewardItem}
+        -- 每个场上实体: {entityType="reward"|"shop", col, row, hp, quality, rewardItem/shopItems}
         fieldRewards = {},
+        shopInventory = nil,
+        pendingShop = nil,
         
         -- 掉落队列（缓冲区，最多存 BUFFER_MAX 个道具）
         dropQueue = {},
@@ -85,6 +93,8 @@ function GameState.New()
         canReincarnate = false,
         canContinueRun = false,
         ascensionAchieved = false,
+        ascensionMode = false,
+        settlementType = nil,
         shouldSpawnBreakthroughWave = false,
         breakthroughSpawnAllowance = 0,
         score = 0,
@@ -92,6 +102,7 @@ function GameState.New()
         -- 动画/UI状态
         visual = VisualState.Create(),
         lastDamageDealt = {},   -- 上回合造成的伤害（用于显示伤害数字）
+        lastCoinDropEvents = {}, -- 上回合敌人金币掉落动画事件
         lastPlayerDamage = 0,   -- 上回合玩家受到的伤害
         lastPlayerDamageCrit = false, -- 上回合玩家受到的伤害是否包含暴击
         turnLog = {},           -- 回合日志

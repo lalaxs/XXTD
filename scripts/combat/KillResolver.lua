@@ -2,6 +2,7 @@
 -- 怪物死亡、修为、击杀回血与场上奖励移除结算。
 
 local RealmSystem = require("RealmSystem")
+local Config = require("Config")
 local RogueRewardSystem = require("rogue.RogueRewardSystem")
 local Stats = require("combat.Stats")
 local VisualEventQueue = require("events.VisualEventQueue")
@@ -57,6 +58,24 @@ local function TriggerPoisonExplosion(state, source)
     return total
 end
 
+local function GetMonsterCoinReward(monster)
+    local rules = Config.SHOP or {}
+    local tierMultiplier = (rules.TIER_MULTIPLIER and rules.TIER_MULTIPLIER[monster.tier]) or 1.0
+    local realm = math.max(1, math.floor(monster.realm or monster.quality or 1))
+    local base = (rules.KILL_COIN_BASE or 2) + (realm - 1) * (rules.KILL_COIN_PER_REALM or 2)
+    return math.max(1, math.floor(base * tierMultiplier + 0.5))
+end
+
+local function RollMonsterCoinReward(monster)
+    local rules = Config.SHOP or {}
+    local dropChance = math.min(1.0, math.max(0.0, rules.KILL_COIN_DROP_CHANCE or 0))
+    if math.random() >= dropChance then
+        return 0
+    end
+
+    return GetMonsterCoinReward(monster)
+end
+
 local function ResolveMonsterDeaths(state)
     local toRemove = {}
     local killHealPct = RogueRewardSystem.GetModifierValue(state, "killHealPct")
@@ -68,11 +87,26 @@ local function ResolveMonsterDeaths(state)
             table.insert(toRemove, i)
             local expReward = math.max(1, math.floor(monster.exp or 0))
             local expGain = RealmSystem.AddExp(state, expReward, { deferCheck = true })
+            local coinGain = RollMonsterCoinReward(monster)
             state.score = state.score + expGain
+            if state.ascensionMode == true then
+                state.endlessKills = (state.endlessKills or 0) + 1
+            end
+            state.coins = (state.coins or 0) + coinGain
             if killHealPct > 0 then
                 totalHeal = totalHeal + math.max(1, math.floor((state.maxHp or 0) * killHealPct))
             end
-            print(string.format("  [Kill] %s 被击杀! +%d修为", monster.name, expGain))
+            if coinGain > 0 then
+                table.insert(state.lastCoinDropEvents, {
+                    col = monster.col,
+                    row = monster.row,
+                    amount = coinGain,
+                    monsterId = monster.id,
+                    startDelay = 0,
+                })
+                VisualEventQueue.PushDropMessage(state, string.format("击杀%s：+%d金币", monster.name, coinGain))
+            end
+            print(string.format("  [Kill] %s 被击杀! +%d修为%s", monster.name, expGain, coinGain > 0 and string.format(" +%d金币", coinGain) or ""))
         end
     end
 

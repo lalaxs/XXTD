@@ -1,5 +1,6 @@
 local Config = require("Config")
 local VisualState = require("VisualState")
+local RogueRewardSystem = require("rogue.RogueRewardSystem")
 
 local WaveSystem = {}
 
@@ -7,6 +8,9 @@ local BUDGET_MAX_ATTEMPTS = 80
 local COLUMN_SOFT_CAP = 7
 local DEFAULT_ACTIVE_LIMIT = 8
 local DEFAULT_SPAWN_MAX = 4
+local RollSpawnCount
+local IsEndlessAscension
+local GetWaveRank
 
 local function ClampDifficulty(value)
     return math.min(Config.MAX_DIFFICULTY or 5, math.max(1, value or 1))
@@ -94,15 +98,18 @@ function WaveSystem.CreateMonsterFromDef(def, col, row, state)
     local expPressureMul = GetRealmExpPressureMul(state)
     local expRewardMul = GetRealmExpRewardMul(state)
     local expGlobalMul = Config.MONSTER_EXP_MUL or 1.0
-    local isEndlessAscension = state and (state.realmIndex or 1) >= #Config.REALMS and state.ascensionAchieved == true
-    local waveRank = isEndlessAscension and math.max(0, (state.realmWaveIndex or 1) - 1) or 0
-    local hpGrowth = 1.0 + waveRank * (Config.WAVE_ENEMY_HP_GROWTH or 0)
-    local atkGrowth = 1.0 + waveRank * (Config.WAVE_ENEMY_ATK_GROWTH or 0)
+    local isEndlessAscension = state and state.ascensionMode == true and state.ascensionAchieved == true
+    local waveRank = isEndlessAscension and math.max(0, (state.endlessWaveIndex or 1) - 1) or 0
+    local hpGrowth = 1.0 + waveRank * (isEndlessAscension and (Config.ENDLESS_WAVE_HP_GROWTH or 0) or (Config.WAVE_ENEMY_HP_GROWTH or 0))
+    local atkGrowth = 1.0 + waveRank * (isEndlessAscension and (Config.ENDLESS_WAVE_ATK_GROWTH or 0) or (Config.WAVE_ENEMY_ATK_GROWTH or 0))
     local realmAtkScale = (Config.REALM_ENEMY_ATK_SCALE and Config.REALM_ENEMY_ATK_SCALE[def.realm or 1]) or 1.0
     local atkMul = enemyMul * atkPressureMul * (1 + (difficulty.enemyAtkBonus or 0)) * realmAtkScale
-    local hp = math.max(1, math.floor((def.hp or 1) * enemyMul * hpPressureMul * hpGrowth + 0.5))
-    local atk = math.max(1, math.floor((def.atk or 1) * atkMul * atkGrowth + 0.5))
-    local defense = math.max(0, math.floor((def.defense or 0) * defPressureMul + 0.5))
+    local enemyHpMul = 1 + RogueRewardSystem.GetModifierValue(state, "enemyHpPct")
+    local enemyAtkMul = 1 + RogueRewardSystem.GetModifierValue(state, "enemyAtkPct")
+    local enemyDefenseMul = 1 + RogueRewardSystem.GetModifierValue(state, "enemyDefensePct")
+    local hp = math.max(1, math.floor((def.hp or 1) * enemyMul * hpPressureMul * hpGrowth * enemyHpMul + 0.5))
+    local atk = math.max(1, math.floor((def.atk or 1) * atkMul * atkGrowth * enemyAtkMul + 0.5))
+    local defense = math.max(0, math.floor((def.defense or 0) * defPressureMul * enemyDefenseMul + 0.5))
     local exp = math.max(1, math.floor((def.exp or 0) * expGlobalMul * expPressureMul * expRewardMul + 0.5))
 
     return {
@@ -292,7 +299,92 @@ local function CountActiveMonsters(state)
     return count
 end
 
+IsEndlessAscension = function(state)
+    return state and state.ascensionMode == true and state.ascensionAchieved == true
+end
+
+local function GetEndlessWaveRank(state)
+    return math.max(0, (state and state.endlessWaveIndex or 1) - 1)
+end
+
+local function GetEndlessBudget(state)
+    local rank = GetEndlessWaveRank(state)
+    local startBudget = Config.ENDLESS_START_BUDGET or 260
+    local growth = Config.ENDLESS_WAVE_BUDGET_GROWTH or 0.08
+    local cap = Config.ENDLESS_WAVE_BUDGET_CAP or 1200
+    local budget = startBudget * ((1 + growth) ^ rank)
+    return math.min(cap, math.max(startBudget, budget))
+end
+
+local function GetEndlessActiveLimit(state)
+    local base = (Config.WAVE_SPAWN.ACTIVE_LIMIT_BY_MAJOR or {})[9] or DEFAULT_ACTIVE_LIMIT
+    local rank = GetEndlessWaveRank(state)
+    local limit = base + math.floor(rank / 8)
+    return math.min(Config.ENDLESS_ACTIVE_LIMIT_CAP or 18, limit)
+end
+
+local function GetEndlessPlan()
+    return Config.WAVE_PLANS[9]
+end
+
+local function GetEndlessSpawnCount(state, budget)
+    local maxMonsters = Config.WAVE_MAX_MONSTERS or DEFAULT_SPAWN_MAX
+    local count = math.floor((budget or 0) / 100)
+    return math.min(maxMonsters, math.max(1, count))
+end
+
+local function GetEndlessMonsterDef(state, spawnIndex)
+    local plan = GetEndlessPlan()
+    local bossInterval = Config.ENDLESS_BOSS_INTERVAL or 5
+    local rank = state.endlessWaveIndex or 1
+    if rank > 0 and rank % bossInterval == 0 then
+        local bossDef = GetDef(plan.boss and plan.boss.id or "purple_fire_elder")
+        if bossDef then return bossDef end
+    end
+    local candidates = BuildCandidateDefs(plan)
+    if #candidates == 0 then return nil end
+    return candidates[math.random(#candidates)]
+end
+
+GetWaveRank = function(state)
+    if IsEndlessAscension(state) then
+        return GetEndlessWaveRank(state)
+    end
+    return 0
+end
+
+local function GetSpawnWaveIndex(state)
+    if IsEndlessAscension(state) then
+        return state.endlessWaveIndex or 1
+    end
+    return state.realmWaveIndex or 0
+end
+
+local function GetWaveTargetCount(state)
+    if IsEndlessAscension(state) then
+        return GetEndlessSpawnCount(state, state.endlessBudget or GetEndlessBudget(state))
+    end
+    return RollSpawnCount(state)
+end
+
+local function AdvanceEndlessWave(state)
+    state.endlessWaveIndex = (state.endlessWaveIndex or 0) + 1
+    state.endlessBudget = GetEndlessBudget(state)
+    state.waveCount = state.endlessWaveIndex
+end
+
+local function StartEndlessWave(state)
+    if not IsEndlessAscension(state) then return end
+    if state.endlessWaveActive ~= true or CountActiveMonsters(state) == 0 then
+        AdvanceEndlessWave(state)
+        state.endlessWaveActive = false
+    end
+end
+
 local function GetActiveMonsterLimit(state)
+    if IsEndlessAscension(state) then
+        return GetEndlessActiveLimit(state)
+    end
     local majorIndex = Config.GetRealmMajorIndex(state.realmIndex or 1)
     local rules = Config.WAVE_SPAWN or {}
     local limits = rules.ACTIVE_LIMIT_BY_MAJOR or {}
@@ -333,20 +425,28 @@ local function SpawnOneMonster(state)
         return false, nil, nil, "active_limit"
     end
 
-    local majorIndex = Config.GetRealmMajorIndex(state.realmIndex or 1)
-    local plan = Config.WAVE_PLANS[majorIndex]
-    if not plan then return false, nil, nil, "no_plan" end
-
-    local spawnIndex = (state.realmWaveIndex or 0) + 1
-    local def = PickStreamMonsterDef(state, plan, spawnIndex)
+    local spawnIndex = GetSpawnWaveIndex(state)
+    local def
+    if IsEndlessAscension(state) then
+        def = GetEndlessMonsterDef(state, spawnIndex)
+    else
+        local majorIndex = Config.GetRealmMajorIndex(state.realmIndex or 1)
+        local plan = Config.WAVE_PLANS[majorIndex]
+        if not plan then return false, nil, nil, "no_plan" end
+        def = PickStreamMonsterDef(state, plan, (state.realmWaveIndex or 0) + 1)
+    end
     if not def then return false, nil, nil, "no_def" end
 
     local reserved = {}
     local col = PickSpawnColumn(state, reserved)
     if not col then return false, nil, nil, "blocked" end
 
-    state.realmWaveIndex = spawnIndex
-    state.waveCount = (state.waveCount or 0) + 1
+    if IsEndlessAscension(state) then
+        state.endlessWaveActive = true
+    else
+        state.realmWaveIndex = (state.realmWaveIndex or 0) + 1
+    end
+    state.waveCount = IsEndlessAscension(state) and (state.endlessWaveIndex or 1) or ((state.waveCount or 0) + 1)
     local monster = WaveSystem.CreateMonsterFromDef(def, col, 1, state)
     state.nextMonsterInstanceId = (state.nextMonsterInstanceId or 0) + 1
     monster.instanceId = state.nextMonsterInstanceId
@@ -356,7 +456,7 @@ local function SpawnOneMonster(state)
     return true, def, col, nil
 end
 
-local function RollSpawnCount(state)
+RollSpawnCount = function(state)
     local majorIndex = Config.GetRealmMajorIndex(state.realmIndex or 1)
     local rules = Config.WAVE_SPAWN or {}
     local rollTable = rules.COUNT_ROLL_BY_MAJOR and rules.COUNT_ROLL_BY_MAJOR[majorIndex]
@@ -380,7 +480,10 @@ local function RollSpawnCount(state)
 end
 
 local function TrySpawnWaveOrQueue(state)
-    local targetCount = RollSpawnCount(state)
+    if IsEndlessAscension(state) then
+        StartEndlessWave(state)
+    end
+    local targetCount = GetWaveTargetCount(state)
     local spawnedCount = 0
     local blockedReason = nil
 

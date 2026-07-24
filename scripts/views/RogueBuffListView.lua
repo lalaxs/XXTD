@@ -121,7 +121,7 @@ local function CreateRewardRow(reward, index)
                         gap = 4,
                         children = {
                             UI.Label {
-                                text = reward.name or "未知机缘",
+                                text = reward.abilityName or reward.name or "未知机缘",
                                 width = "100%",
                                 fontSize = 18,
                                 fontWeight = "bold",
@@ -148,7 +148,7 @@ local function CreateRewardRow(reward, index)
                 backgroundColor = WithAlpha(color, 135),
             },
             UI.Label {
-                text = reward.desc or "",
+                text = reward.abilityDesc or reward.desc or "",
                 width = "100%",
                 fontSize = 14,
                 lineHeight = 1.35,

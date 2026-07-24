@@ -8,6 +8,7 @@ local SlotAdapter = require("SlotAdapter")
 local BoardLayout = require("BoardLayout")
 local StatusPresenter = require("views.StatusPresenter")
 local VisualState = require("VisualState")
+local VectorIcons = require("views.VectorIcons")
 
 local BoardView = {}
 
@@ -51,6 +52,65 @@ function ShieldBadge:Render(nvg)
     nvgFill(nvg)
     nvgStrokeColor(nvg, nvgRGBA(22, 73, 122, 255))
     nvgStrokeWidth(nvg, math.max(2, l.w * 0.055))
+    nvgStroke(nvg)
+end
+
+local CoinIcon = VectorIcons.CoinIcon
+
+local ShopIcon = setmetatable({}, { __index = Widget })
+ShopIcon.__index = ShopIcon
+
+function ShopIcon:new(props)
+    return Widget.new(self, props or {})
+end
+
+setmetatable(ShopIcon, {
+    __index = Widget,
+    __call = function(cls, props)
+        return cls:new(props)
+    end,
+})
+
+function ShopIcon:Render(nvg)
+    local l = self:GetAbsoluteLayout()
+    local cx = l.x + l.w * 0.5
+    local base = l.y + l.h * 0.84
+    local s = math.min(l.w, l.h)
+    local bodyW = s * 0.56
+    local bodyH = s * 0.36
+    local bodyX = cx - bodyW * 0.5
+    local bodyY = base - bodyH
+    local stroke = math.max(1.5, s * 0.045)
+
+    nvgBeginPath(nvg)
+    nvgRect(nvg, bodyX, bodyY, bodyW, bodyH)
+    nvgFillColor(nvg, nvgRGBA(232, 228, 210, 255))
+    nvgFill(nvg)
+    nvgStrokeColor(nvg, nvgRGBA(58, 54, 69, 255))
+    nvgStrokeWidth(nvg, stroke)
+    nvgStroke(nvg)
+
+    local roofY = l.y + s * 0.22
+    nvgBeginPath(nvg)
+    nvgMoveTo(nvg, cx - s * 0.38, bodyY + s * 0.04)
+    nvgLineTo(nvg, cx - s * 0.27, roofY)
+    nvgLineTo(nvg, cx + s * 0.27, roofY)
+    nvgLineTo(nvg, cx + s * 0.38, bodyY + s * 0.04)
+    nvgLineTo(nvg, cx + s * 0.32, bodyY + s * 0.10)
+    nvgLineTo(nvg, cx - s * 0.32, bodyY + s * 0.10)
+    nvgClosePath(nvg)
+    nvgFillColor(nvg, nvgRGBA(82, 76, 89, 255))
+    nvgFill(nvg)
+    nvgStrokeColor(nvg, nvgRGBA(28, 27, 36, 255))
+    nvgStrokeWidth(nvg, stroke)
+    nvgStroke(nvg)
+
+    nvgBeginPath(nvg)
+    nvgRect(nvg, cx - s * 0.11, base - s * 0.24, s * 0.22, s * 0.24)
+    nvgFillColor(nvg, nvgRGBA(141, 117, 103, 255))
+    nvgFill(nvg)
+    nvgStrokeColor(nvg, nvgRGBA(58, 54, 69, 255))
+    nvgStrokeWidth(nvg, math.max(1, stroke * 0.8))
     nvgStroke(nvg)
 end
 
@@ -445,6 +505,62 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
 
     AddImage(boardPanel, m, { x = 0, y = 0, w = DESIGN_W, h = DESIGN_H }, UI_ASSETS.bg, "stretch")
     AddStatusBars(boardPanel, state, m)
+
+    local coinRect = D(m.coin, m.scale)
+    boardPanel:AddChild(UI.Panel {
+        position = "absolute",
+        left = m.originX + coinRect.x,
+        top = m.originY + coinRect.y,
+        width = coinRect.w,
+        height = coinRect.h,
+        flexDirection = "row",
+        alignItems = "center",
+        justifyContent = "center",
+        gap = 8 * m.scale,
+        backgroundColor = {247, 226, 181, 250},
+        borderWidth = math.max(1, 2 * m.scale),
+        borderColor = {154, 112, 61, 235},
+        borderRadius = math.max(12, 20 * m.scale),
+        boxShadow = {
+            { x = 3 * m.scale, y = 3 * m.scale, blur = 0, spread = 0, color = {28, 27, 36, 55} },
+        },
+        pointerEvents = "none",
+        children = {
+            CoinIcon {
+                width = math.max(38, 93 * m.scale),
+                height = math.max(38, 93 * m.scale),
+                pointerEvents = "none",
+            },
+            UI.Label {
+                text = tostring(state.coins or 0),
+                flexShrink = 1,
+                fontSize = math.max(20, math.floor(36 * m.scale)),
+                fontWeight = "bold",
+                fontColor = {28, 27, 36, 255},
+                pointerEvents = "none",
+            },
+        },
+    })
+
+    local shopRect = D(m.shopEntry, m.scale)
+    boardPanel:AddChild(UI.Panel {
+        position = "absolute",
+        left = m.originX + shopRect.x,
+        top = m.originY + shopRect.y,
+        width = shopRect.w,
+        height = shopRect.h,
+        alignItems = "center",
+        justifyContent = "center",
+        pointerEvents = "none",
+        children = {
+            ShopIcon {
+                width = 150 * m.scale,
+                height = 150 * m.scale,
+                pointerEvents = "none",
+            },
+        },
+    })
+
     AddImage(boardPanel, m, m.decomposeArea, UI_ASSETS.decomposeArea, "stretch")
     AddImage(boardPanel, m, m.decomposeIcon, UI_ASSETS.decomposeIcon, "contain")
     AddImage(boardPanel, m, m.storage, UI_ASSETS.storage, "stretch")
@@ -463,6 +579,22 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
             end
         end,
     })
+    local shopRect = D(m.shopEntry, m.scale)
+    boardPanel:AddChild(UI.Panel {
+        position = "absolute",
+        left = m.originX + shopRect.x,
+        top = m.originY + shopRect.y,
+        width = shopRect.w,
+        height = shopRect.h,
+        backgroundColor = {0, 0, 0, 0},
+        pointerEvents = "auto",
+        onTap = function()
+            if callbacks and callbacks.onShopClick then
+                callbacks.onShopClick()
+            end
+        end,
+    })
+
     local expRect = D(m.expCircle, m.scale)
     boardPanel:AddChild(UI.Panel {
         position = "absolute",

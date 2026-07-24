@@ -7,6 +7,7 @@ local Effects = require("Effects")
 local DragActions = require("DragActions")
 local UIController = require("UIController")
 local ConsumableActions = require("actions.ConsumableActions")
+local ShopActions = require("actions.ShopActions")
 local RogueRewardActions = require("actions.RogueRewardActions")
 local RunLifecycle = require("flow.RunLifecycle")
 local TurnFlowController = require("flow.TurnFlowController")
@@ -27,6 +28,10 @@ local OnDragStart
 local CanDrop
 local OnDragEnd
 local OnUseConsumable
+local OnShopClick
+local OnBuyShopItem
+local OnRefreshShop
+local OnCloseShop
 local OnSelectRogueReward
 local OnAbandonRun
 local UpdateAllUI
@@ -71,6 +76,7 @@ local function CreateTurnFlowController()
         end,
         triggerAttack = function(state)
             local duration, hitDelay = Effects.TriggerAttack(state)
+            Effects.TriggerCoinDrops(state, hitDelay)
             return duration or 0, hitDelay or 0
         end,
     })
@@ -125,6 +131,10 @@ CreateUI = function()
         onDragEnd = OnDragEnd,
         canDrop = CanDrop,
         onUseConsumable = OnUseConsumable,
+        onShopClick = OnShopClick,
+        onBuyShopItem = OnBuyShopItem,
+        onRefreshShop = OnRefreshShop,
+        onCloseShop = OnCloseShop,
         onSelectRogueReward = OnSelectRogueReward,
         onAbandonRun = OnAbandonRun,
         onRestart = RestartGame,
@@ -211,6 +221,41 @@ OnUseConsumable = function(context)
     else
         UpdateSlots()
     end
+end
+
+OnShopClick = function()
+    if not state_ or state_.isGameOver then return end
+    ResolvePendingTurnVisual()
+    ShopActions.Open(state_)
+    UpdateAllUI()
+end
+
+OnBuyShopItem = function(itemIndex)
+    if not state_ or state_.isGameOver or not state_.pendingShop then return end
+    ResolvePendingTurnVisual()
+
+    local result = ShopActions.Buy(state_, itemIndex)
+    if not result.ok and result.message and uiController_ then
+        uiController_:ShowOperationWarning(result.message)
+    end
+    UpdateAllUI()
+end
+
+OnRefreshShop = function()
+    if not state_ or state_.isGameOver or not state_.pendingShop then return end
+    ResolvePendingTurnVisual()
+
+    local result = ShopActions.Refresh(state_)
+    if not result.ok and result.message and uiController_ then
+        uiController_:ShowOperationWarning(result.message)
+    end
+    UpdateAllUI()
+end
+
+OnCloseShop = function()
+    if not state_ then return end
+    ShopActions.Close(state_)
+    UpdateAllUI()
 end
 
 OnSelectRogueReward = function(rewardId)

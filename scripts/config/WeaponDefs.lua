@@ -21,6 +21,30 @@ local WEAPONS = {
     { id = "huxin_pearl", name = "护心珠", school = "guardian", mode = "guardian", coefficient = 0.80, tendency = "guardian", signature = "guardian_attack_down" },
 }
 
+local function BuildWeaponDescription(spec)
+    local modeNames = {
+        single = "单体攻击",
+        pierce = "穿透攻击",
+        sweep = "扇形攻击",
+        area = "范围攻击",
+        control = "控制攻击",
+        guardian = "守护攻击",
+    }
+    local tendencyNames = {
+        burst = "擅长暴击",
+        dot = "擅长持续伤害",
+        area = "擅长范围压制",
+        dot_area = "擅长范围持续伤害",
+        debuff = "擅长施加减益",
+        control = "擅长定身控制",
+        displace = "擅长位移控场",
+        vulnerable = "擅长施加易伤",
+        pierce_debuff = "擅长破甲穿透",
+        guardian = "擅长守护削弱",
+    }
+    return string.format("%s，%s。", modeNames[spec.mode] or "法宝攻击", tendencyNames[spec.tendency] or "拥有独特效果")
+end
+
 local function Round(value)
     return math.floor(value + 0.5)
 end
@@ -68,6 +92,7 @@ for _, spec in ipairs(WEAPONS) do
             coefficient = spec.coefficient,
             tendency = spec.tendency,
             signature = spec.signature,
+            description = BuildWeaponDescription(spec),
             power = atk,
             weight = 1,
             atk = atk,

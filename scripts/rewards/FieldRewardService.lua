@@ -113,6 +113,35 @@ local function ClampRewardQuality(state, quality)
     return math.min(maxQuality, math.max(minQuality, quality or minQuality))
 end
 
+local function GetShopItemPrice(item)
+    local rules = Config.SHOP or {}
+    local quality = math.min(Config.MAX_QUALITY, math.max(1, item and item.quality or 1))
+    local prices = rules.QUALITY_PRICE or {}
+    return math.max(1, math.floor(prices[quality] or ((rules.BASE_PRICE or 8) * quality)))
+end
+
+function FieldRewardService.CreateShopItems(state, quality)
+    local finalQuality = ClampRewardQuality(state, quality)
+    local rules = Config.SHOP or {}
+    local itemCount = math.max(1, math.floor(rules.ITEM_COUNT or 2))
+    local categories = { Config.ITEM_CATEGORY.PILL, Config.ITEM_CATEGORY.TALISMAN }
+    if math.random() < 0.5 then
+        categories[1], categories[2] = categories[2], categories[1]
+    end
+
+    local items = {}
+    for index = 1, itemCount do
+        local category = categories[((index - 1) % #categories) + 1]
+        local item = ItemSystem.CreateItemByCategory(state, category, finalQuality)
+        table.insert(items, {
+            item = item,
+            price = GetShopItemPrice(item),
+            purchased = false,
+        })
+    end
+    return items
+end
+
 function FieldRewardService.CreateRewardItem(state, quality)
     local itemCategory = RollItemCategory(state)
     if ShouldGuaranteeEarlyWeapon(state) then
