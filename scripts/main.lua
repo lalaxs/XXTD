@@ -1,5 +1,5 @@
 -- main.lua
--- 仙侠合成塔防 - 手机竖屏版
+-- 一把仙剑闯天关 - 手机竖屏版
 
 local UI = require("urhox-libs/UI")
 local RealmSystem = require("RealmSystem")
@@ -11,6 +11,9 @@ local ShopActions = require("actions.ShopActions")
 local RogueRewardActions = require("actions.RogueRewardActions")
 local RunLifecycle = require("flow.RunLifecycle")
 local TurnFlowController = require("flow.TurnFlowController")
+local LeaderboardService = require("LeaderboardService")
+local DailyChallenge = require("DailyChallenge")
+local DailyChallengeProgress = require("DailyChallengeProgress")
 -- VectorIcons 和 FieldView 的图标绘制已移到 UI 层
 -- NanoVG 只负责特效
 
@@ -38,8 +41,11 @@ local UpdateAllUI
 local UpdateSlots
 local UpdateFieldPanel
 local RestartGame
+local StartGame
 local ContinueRun
 local EnterReincarnation
+local OpenDailyChallenge
+local StartDailyChallenge
 
 local function StartNewGameWithProgress(progress)
     state_ = RunLifecycle.StartNewGame(progress)
@@ -89,7 +95,7 @@ local function ResolvePendingTurnVisual()
 end
 
 function Start()
-    graphics.windowTitle = "仙侠合成塔防"
+    graphics.windowTitle = "一把仙剑闯天关"
 
     UI.Init({
         theme = "default-dark",
@@ -110,7 +116,7 @@ function Start()
     SubscribeToEvent("Update", "HandleUpdate")
     SubscribeToEvent("NanoVGRender", "HandleNanoVGRender")
 
-    print("=== 仙侠合成塔防 启动 ===")
+    print("=== 一把仙剑闯天关 启动 ===")
 end
 
 function Stop()
@@ -138,8 +144,11 @@ CreateUI = function()
         onSelectRogueReward = OnSelectRogueReward,
         onAbandonRun = OnAbandonRun,
         onRestart = RestartGame,
+        onStartGame = StartGame,
         onContinueRun = ContinueRun,
         onReincarnate = EnterReincarnation,
+        onOpenDailyChallenge = OpenDailyChallenge,
+        onBeginDailyChallenge = StartDailyChallenge,
     })
 end
 
@@ -281,6 +290,24 @@ OnAbandonRun = function()
 end
 
 UpdateAllUI = function()
+    if state_ and state_.isGameOver then
+        if DailyChallenge.IsActive(state_) and not state_.dailyChallengeResultRecorded then
+            local finalScore = LeaderboardService.CalculateFinalScore(state_)
+            local progress = state_.dailyChallengeProgress
+            if progress then
+                local _, isNewBest = DailyChallengeProgress.Complete(progress, finalScore)
+                state_.dailyChallengeResult = {
+                    score = finalScore,
+                    isNewBest = isNewBest,
+                    challengeId = state_.dailyChallenge.id,
+                }
+            end
+            state_.dailyChallengeResultRecorded = true
+        end
+        if not state_.leaderboardSubmitted then
+            LeaderboardService.SubmitFinalResult(state_)
+        end
+    end
     if uiController_ then
         uiController_:UpdateAll(state_)
     end
@@ -311,16 +338,75 @@ RestartGame = function()
     UpdateAllUI()
 end
 
+StartGame = function()
+    if uiController_ then
+        uiController_:ClearFloatingTexts()
+    end
+    state_ = RunLifecycle.RestartKeepingProgress(state_)
+    Effects.Reset()
+    firstFrameDone_ = false
+    if uiController_ then
+        uiController_:HideTitle()
+        uiController_:HideGameOver()
+    end
+    UpdateAllUI()
+    print("[Title] 开始新游戏")
+end
+
 ContinueRun = function()
-    if not state_ or not state_.canContinueRun then return end
+    if not state_ then return end
 
     if uiController_ then
+        uiController_:HideTitle()
         uiController_:HideGameOver()
         uiController_:ClearFloatingTexts()
     end
 
-    state_ = RunLifecycle.ContinueRun(state_)
+    if state_.canContinueRun then
+        state_ = RunLifecycle.ContinueRun(state_)
+    end
     UpdateAllUI()
+    print("[Title] 继续当前游戏")
+end
+
+OpenDailyChallenge = function()
+    print("[Daily] 打开每日挑战详情")
+    local challenge = DailyChallenge.ResolveToday()
+    local progress = DailyChallengeProgress.Load(challenge.id)
+    if uiController_ then
+        uiController_:ShowDailyChallenge(challenge, progress)
+    end
+end
+
+StartDailyChallenge = function()
+    print("[Daily] 确认开始每日挑战")
+    local challenge = DailyChallenge.ResolveToday()
+    local progress = DailyChallengeProgress.Load(challenge.id)
+    if not DailyChallengeProgress.CanStart(progress) then
+        if uiController_ then
+            uiController_:ShowDailyChallenge(challenge, progress)
+            uiController_:ShowCenterFloat("今日挑战次数已用尽", "warning", { anchorY = 0.30, duration = 1.2 })
+        end
+        return
+    end
+
+    if not DailyChallengeProgress.BeginAttempt(progress) then
+        return
+    end
+
+    state_ = RunLifecycle.StartNewGame(nil, { dailyChallenge = challenge })
+    state_.dailyChallengeProgress = progress
+    Effects.Reset()
+    firstFrameDone_ = false
+    if uiController_ then
+        uiController_:HideDailyChallenge()
+        uiController_:HideTitle()
+        uiController_:HideGameOver()
+        uiController_:ClearFloatingTexts()
+        uiController_:ShowCenterFloat("今日挑战 · " .. challenge.date, "info", { anchorY = 0.30, duration = 1.4 })
+    end
+    UpdateAllUI()
+    print(string.format("[Daily] 开始每日挑战 %s，种子=%d", challenge.id, challenge.seed))
 end
 
 EnterReincarnation = function()

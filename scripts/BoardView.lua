@@ -495,6 +495,43 @@ local function AddStatusBars(boardPanel, state, m)
     })
 end
 
+local function AddDailyChallengeBanner(boardPanel, state, m)
+    local challenge = state and state.dailyChallenge
+    if not challenge then return end
+
+    local tagNames = {}
+    for _, tag in ipairs(challenge.tags or {}) do
+        table.insert(tagNames, tag.name or tag.id)
+    end
+    local text = "每日挑战  " .. table.concat(tagNames, " · ")
+    boardPanel:AddChild(UI.Panel {
+        position = "absolute",
+        left = m.originX + 18 * m.scale,
+        top = m.originY + 22 * m.scale,
+        width = DESIGN_W * m.scale - 36 * m.scale,
+        height = 34 * m.scale,
+        paddingHorizontal = 12 * m.scale,
+        backgroundColor = {47, 30, 25, 225},
+        borderWidth = math.max(1, 2 * m.scale),
+        borderColor = {217, 165, 82, 255},
+        borderRadius = 10 * m.scale,
+        alignItems = "center",
+        justifyContent = "center",
+        pointerEvents = "none",
+        children = {
+            UI.Label {
+                text = text,
+                width = "100%",
+                fontSize = math.max(10, math.floor(16 * m.scale)),
+                fontWeight = "bold",
+                fontColor = {255, 233, 174, 255},
+                textAlign = "center",
+                pointerEvents = "none",
+            },
+        },
+    })
+end
+
 function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, callbacks)
     boardPanel:ClearChildren()
 
@@ -504,6 +541,7 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
     local m = BoardView.CalcMetrics(layout.w, layout.h)
 
     AddImage(boardPanel, m, { x = 0, y = 0, w = DESIGN_W, h = DESIGN_H }, UI_ASSETS.bg, "stretch")
+    AddDailyChallengeBanner(boardPanel, state, m)
     AddStatusBars(boardPanel, state, m)
 
     local coinRect = D(m.coin, m.scale)
@@ -643,6 +681,7 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
             local hpBarInnerH = math.max(1, hpBarH - hpBarInset * 2)
             local hpBarRadius = math.max(3 * m.scale, hpBarH * 0.22)
             local hpFillRadius = math.max(2 * m.scale, hpBarInnerH * 0.18)
+            local hpFillColor = monster.enraged and {205, 70, 28, 255} or {150, 28, 26, 255}
             local monsterRef = monster
             local shouldPlaySpawnAnim = VisualState.ShouldPlayMonsterSpawn(state, monster)
             local monsterPanel = UI.Panel {
@@ -670,6 +709,30 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
                     end
                 end,
                 children = {
+                    UI.Panel {
+                        visible = monster.enraged == true,
+                        position = "absolute",
+                        top = 4 * m.scale,
+                        width = r.w * 0.64,
+                        height = 23 * m.scale,
+                        backgroundColor = {126, 35, 23, 235},
+                        borderRadius = 7 * m.scale,
+                        borderWidth = math.max(1, m.scale),
+                        borderColor = {255, 193, 91, 255},
+                        alignItems = "center",
+                        justifyContent = "center",
+                        pointerEvents = "none",
+                        children = {
+                            UI.Label {
+                                text = "狂暴",
+                                fontSize = math.max(10, math.floor(16 * m.scale)),
+                                fontWeight = "bold",
+                                fontColor = {255, 236, 187, 255},
+                                textAlign = "center",
+                                pointerEvents = "none",
+                            },
+                        },
+                    },
                     UI.Panel {
                         position = "absolute",
                         bottom = 12 * m.scale,
@@ -707,7 +770,7 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
                                         top = 0,
                                         width = tostring(math.floor(hpRatio * 100)) .. "%",
                                         height = "100%",
-                                        backgroundColor = {150, 28, 26, 255},
+                                        backgroundColor = hpFillColor,
                                         borderRadius = hpFillRadius,
                                         pointerEvents = "none",
                                     },

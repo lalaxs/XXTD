@@ -13,6 +13,7 @@ local ReincarnationSystem = require("ReincarnationSystem")
 local RogueRewardSystem = require("rogue.RogueRewardSystem")
 local Stats = require("combat.Stats")
 local VisualEventQueue = require("events.VisualEventQueue")
+local DailyChallenge = require("DailyChallenge")
 
 local TurnEngine = {}
 
@@ -137,8 +138,11 @@ local function RefreshBoard(state, suppressWaveSpawn)
 end
 
 local function ApplyTurnRegen(state)
+    if DailyChallenge.GetEffect(state, "disableTurnRegen", 0) > 0 then return end
+
     local regenPct = RogueRewardSystem.GetModifierValue(state, "turnRegenPct")
         + ReincarnationSystem.GetValue(state, "turnRegenPct")
+        + DailyChallenge.GetEffect(state, "turnRegenPctAdd", 0)
     if regenPct <= 0 or state.hp <= 0 then return end
 
     local heal = math.max(1, math.floor(state.maxHp * regenPct))

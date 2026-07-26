@@ -1,6 +1,7 @@
 local Config = require("Config")
 local VisualState = require("VisualState")
 local RogueRewardSystem = require("rogue.RogueRewardSystem")
+local DailyChallenge = require("DailyChallenge")
 
 local WaveSystem = {}
 
@@ -104,9 +105,12 @@ function WaveSystem.CreateMonsterFromDef(def, col, row, state)
     local atkGrowth = 1.0 + waveRank * (isEndlessAscension and (Config.ENDLESS_WAVE_ATK_GROWTH or 0) or (Config.WAVE_ENEMY_ATK_GROWTH or 0))
     local realmAtkScale = (Config.REALM_ENEMY_ATK_SCALE and Config.REALM_ENEMY_ATK_SCALE[def.realm or 1]) or 1.0
     local atkMul = enemyMul * atkPressureMul * (1 + (difficulty.enemyAtkBonus or 0)) * realmAtkScale
-    local enemyHpMul = 1 + RogueRewardSystem.GetModifierValue(state, "enemyHpPct")
-    local enemyAtkMul = 1 + RogueRewardSystem.GetModifierValue(state, "enemyAtkPct")
-    local enemyDefenseMul = 1 + RogueRewardSystem.GetModifierValue(state, "enemyDefensePct")
+    local enemyHpMul = (1 + RogueRewardSystem.GetModifierValue(state, "enemyHpPct"))
+        * DailyChallenge.GetEffect(state, "monsterHpMul", 1.0)
+    local enemyAtkMul = (1 + RogueRewardSystem.GetModifierValue(state, "enemyAtkPct"))
+        * DailyChallenge.GetEffect(state, "monsterAtkMul", 1.0)
+    local enemyDefenseMul = (1 + RogueRewardSystem.GetModifierValue(state, "enemyDefensePct"))
+        * DailyChallenge.GetEffect(state, "monsterDefenseMul", 1.0)
     local hp = math.max(1, math.floor((def.hp or 1) * enemyMul * hpPressureMul * hpGrowth * enemyHpMul + 0.5))
     local atk = math.max(1, math.floor((def.atk or 1) * atkMul * atkGrowth * enemyAtkMul + 0.5))
     local defense = math.max(0, math.floor((def.defense or 0) * defPressureMul * enemyDefenseMul + 0.5))
@@ -221,7 +225,7 @@ local function GetSpawnColumnScore(state, reserved, counts, col)
     local load = counts[col] or 0
     local deployed = CountDeployedItemsInColumn(state, col)
     local center = (Config.GRID_COLS + 1) * 0.5
-    local score = math.random() * (rules.RANDOM_JITTER or 0.8)
+    local score = DailyChallenge.RandomFloat(state) * (rules.RANDOM_JITTER or 0.8)
 
     score = score - load * (rules.COLUMN_LOAD_PENALTY or 2.0)
 
@@ -243,13 +247,16 @@ local function GetSpawnColumnScore(state, reserved, counts, col)
         end
     end
 
-    score = score + (Config.GRID_COLS - math.abs(col - center)) * (rules.CENTER_COLUMN_BONUS or 0.35)
+    local centerWeight = DailyChallenge.GetEffect(state, "centerColumnBonusMul", 1.0)
+    score = score + (Config.GRID_COLS - math.abs(col - center)) * (rules.CENTER_COLUMN_BONUS or 0.35) * centerWeight
     return score
 end
 
 local function PickRecentSpawnColumn(state, reserved, counts)
     local rules = Config.SPAWN_POINT_RULES or {}
-    if math.random() >= (rules.SAME_COLUMN_REPEAT_CHANCE or 0) then return nil end
+    local repeatChance = (rules.SAME_COLUMN_REPEAT_CHANCE or 0)
+        + DailyChallenge.GetEffect(state, "sameColumnRepeatChanceAdd", 0)
+    if DailyChallenge.RandomFloat(state) >= math.min(1.0, repeatChance) then return nil end
 
     for _, col in ipairs(state.recentSpawnColumns or {}) do
         if col and not reserved[col] and not TopRowBlocked(state, col) and (counts[col] or 0) < COLUMN_SOFT_CAP then
@@ -283,7 +290,7 @@ local function PickSpawnColumn(state, reserved)
 
     if #bestCols == 0 then return nil end
 
-    local col = bestCols[math.random(#bestCols)]
+    local col = bestCols[DailyChallenge.RandomInt(state, #bestCols)]
     reserved[col] = true
     PushRecentSpawnColumn(state, col)
     return col
@@ -343,7 +350,7 @@ local function GetEndlessMonsterDef(state, spawnIndex)
     end
     local candidates = BuildCandidateDefs(plan)
     if #candidates == 0 then return nil end
-    return candidates[math.random(#candidates)]
+    return candidates[DailyChallenge.RandomInt(state, #candidates)]
 end
 
 GetWaveRank = function(state)
@@ -391,10 +398,10 @@ local function GetActiveMonsterLimit(state)
     return limits[majorIndex] or DEFAULT_ACTIVE_LIMIT
 end
 
-local function PickLockedStreamDef(plan, spawnIndex)
+local function PickLockedStreamDef(state, plan, spawnIndex)
     local locks = plan.locks and plan.locks[spawnIndex]
     if not locks or #locks == 0 then return nil end
-    return GetDef(locks[math.random(#locks)])
+    return GetDef(locks[DailyChallenge.RandomInt(state, #locks)])
 end
 
 local function PickBossStreamDef(plan, spawnIndex)
@@ -411,12 +418,12 @@ local function PickStreamMonsterDef(state, plan, spawnIndex)
     local bossDef = PickBossStreamDef(plan, spawnIndex)
     if bossDef then return bossDef end
 
-    local lockedDef = PickLockedStreamDef(plan, spawnIndex)
+    local lockedDef = PickLockedStreamDef(state, plan, spawnIndex)
     if lockedDef then return lockedDef end
 
     local candidates = BuildCandidateDefs(plan)
     if #candidates == 0 then return nil end
-    return candidates[math.random(#candidates)]
+    return candidates[DailyChallenge.RandomInt(state, #candidates)]
 end
 
 local function SpawnOneMonster(state)
@@ -468,12 +475,13 @@ RollSpawnCount = function(state)
     end
     if totalWeight <= 0 then return 1 end
 
-    local roll = math.random() * totalWeight
+    local roll = DailyChallenge.RandomFloat(state) * totalWeight
     local acc = 0
     for _, entry in ipairs(rollTable) do
         acc = acc + math.max(0, entry.weight or 0)
         if roll <= acc then
-            return math.max(1, math.floor(entry.count or 1))
+            local countMultiplier = DailyChallenge.GetEffect(state, "monsterSpawnCountMul", 1.0)
+            return math.max(1, math.floor((entry.count or 1) * countMultiplier + 0.5))
         end
     end
     return 1
@@ -526,12 +534,13 @@ local function GetWaveSpawnChance(state)
     end
 
     local chance = baseChance + math.max(0, turns - minInterval) * (rules.CHANCE_GROWTH_PER_TURN or 0.10)
-    return math.min(rules.MAX_SPAWN_CHANCE or 0.90, chance)
+    local chanceMultiplier = DailyChallenge.GetEffect(state, "monsterSpawnChanceMul", 1.0)
+    return math.min(1.0, math.min(rules.MAX_SPAWN_CHANCE or 0.90, chance) * chanceMultiplier)
 end
 
 function WaveSystem.SpawnWave(state)
     state.waveTurnsSinceSpawn = (state.waveTurnsSinceSpawn or 0) + 1
-    if math.random() <= GetWaveSpawnChance(state) then
+    if DailyChallenge.RandomFloat(state) <= GetWaveSpawnChance(state) then
         if TrySpawnWaveOrQueue(state) then
             state.waveTurnsSinceSpawn = 0
         end

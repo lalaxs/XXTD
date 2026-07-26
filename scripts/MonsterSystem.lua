@@ -5,6 +5,7 @@ local ReincarnationSystem = require("ReincarnationSystem")
 local Stats = require("combat.Stats")
 local GameEvents = require("GameEvents")
 local VisualEventQueue = require("events.VisualEventQueue")
+local DailyChallenge = require("DailyChallenge")
 
 local MonsterSystem = {}
 
@@ -98,7 +99,7 @@ local function ApplySurvivalSkill(stateOrMonster, maybeMonster)
     end
 end
 
-local function ShouldSkipMovement(monster)
+local function ShouldSkipMovement(state, monster)
     if (monster.rootTurns or 0) > 0 then
         monster.slowed = nil
         monster.plannedSkipMovement = nil
@@ -112,7 +113,7 @@ local function ShouldSkipMovement(monster)
     elseif monster.slowed and monster.slowed > 0 then
         local skipped = monster.plannedSkipMovement
         if skipped == nil then
-            skipped = math.random() < monster.slowed
+            skipped = DailyChallenge.RandomFloat(state) < monster.slowed
         end
         monster.slowed = nil
         monster.plannedSkipMovement = nil
@@ -234,6 +235,15 @@ local function EnsureMeleeBottomCharge(monster, delay)
     end
 end
 
+local function TryEnrageMonster(state, monster)
+    if DailyChallenge.TryEnrageMonster(state, monster) then
+        GameEvents.AddMonsterStatus(state, monster, "狂暴", "buff")
+        print(string.format("  [Daily] %s 进入狂暴状态！", monster.name))
+        return true
+    end
+    return false
+end
+
 function MonsterSystem.MoveMonsters(state)
     local toRemove = {}
     local occupied = BuildMonsterOccupancy(state)
@@ -262,7 +272,7 @@ function MonsterSystem.MoveMonsters(state)
 
             if monster.monsterType == Config.MONSTER_TYPE.MELEE and monster.row >= Config.FIELD_ROWS then
                 EnsureMeleeBottomCharge(monster, 0)
-            elseif ShouldSkipMovement(monster) then
+            elseif ShouldSkipMovement(state, monster) then
                 print(string.format("  [Control] %s 被控制，跳过移动", monster.name))
             else
                 local targetRow = monster.row + 1
@@ -290,6 +300,7 @@ function MonsterSystem.MoveMonsters(state)
 
             if not removed then
                 EnsureMeleeBottomCharge(monster, moved and 1 or 0)
+                TryEnrageMonster(state, monster)
 
                 if monster.hp > 0 and monster.row <= Config.FIELD_ROWS then
                     ApplyMovementSkill(state, monster, moved)
@@ -336,7 +347,7 @@ local function ApplyPlayerDebuff(state, debuff, monster)
             end
         end
         if #weaponSlots > 0 then
-            local slotIdx = weaponSlots[math.random(#weaponSlots)]
+            local slotIdx = weaponSlots[DailyChallenge.RandomInt(state, #weaponSlots)]
             pendingSeals[slotIdx] = math.max(pendingSeals[slotIdx] or 0, debuff.duration or 1)
             GameEvents.AddPlayerStatus(state, "法宝封印", "debuff")
             print(string.format("  [Debuff] %s 封印第%d格法宝%d回合（下回合起生效）", monster.name, slotIdx, debuff.duration or 1))
@@ -354,7 +365,7 @@ local function ApplyPlayerDebuffs(state, monster)
     end
 end
 
-local function CalculateMonsterAttackDamage(monster)
+local function CalculateMonsterAttackDamage(state, monster)
     local damage = monster.atk or 0
     local attackDown = monster.attackDown or 0
     if attackDown > 0 then
@@ -362,7 +373,7 @@ local function CalculateMonsterAttackDamage(monster)
     end
     local critChance = math.max(0, (monster.critChance or 0) - (monster.critChanceDown or 0))
     local didCrit = false
-    if math.random() < critChance then
+    if DailyChallenge.RandomFloat(state) < critChance then
         didCrit = true
         damage = math.floor(damage * (monster.critMultiplier or 1.5))
     end
@@ -426,7 +437,7 @@ local function ApplyAttackSkill(state, monster, baseDamage)
 end
 
 local function AttackWithMonster(state, monster, label)
-    local damage, didCrit = CalculateMonsterAttackDamage(monster)
+    local damage, didCrit = CalculateMonsterAttackDamage(state, monster)
     AddMonsterAttackEvent(state, monster, damage, nil, didCrit)
     local extraDamage = ApplyAttackSkill(state, monster, damage)
     ApplyPlayerDebuffs(state, monster)
@@ -574,7 +585,7 @@ local function ApplyArmorHitEffects(state, defenses, attack, rawDmg, mitigationS
             end
         end
 
-        if effect and effect.type == "block" and math.random() < math.min(1, (effect.blockChance or 0) + RogueRewardSystem.GetArmorModifierValue(state, "blockChancePct", item.baseId)) then
+        if effect and effect.type == "block" and DailyChallenge.RandomFloat(state) < math.min(1, (effect.blockChance or 0) + RogueRewardSystem.GetArmorModifierValue(state, "blockChancePct", item.baseId)) then
             blockedByItem = true
             blocked = true
             table.insert(usedNames, item.name .. "(格挡)")

@@ -5,6 +5,7 @@ local Config = require("Config")
 local ItemSystem = require("ItemSystem")
 local RogueRewardSystem = require("rogue.RogueRewardSystem")
 local VisualEventQueue = require("events.VisualEventQueue")
+local DailyChallenge = require("DailyChallenge")
 
 local FieldRewardService = {}
 
@@ -43,6 +44,11 @@ local function GetCategoryWeightMultiplier(state, category)
     if category == Config.ITEM_CATEGORY.WEAPON and Config.GetRealmMajorIndex(state.realmIndex or 1) == 1 then
         multiplier = multiplier * ((Config.FIELD_REWARD and Config.FIELD_REWARD.EARLY_WEAPON_WEIGHT_MUL) or 1.0)
     end
+    multiplier = multiplier * DailyChallenge.GetEffect(
+        state,
+        "itemCategoryWeightMul_" .. tostring(category),
+        1.0
+    )
     return multiplier
 end
 
@@ -59,7 +65,7 @@ local function BuildCategoryWeights(state)
     return weights
 end
 
-local function RollWeightedCategory(weights)
+local function RollWeightedCategory(state, weights)
     local total = 0
     for _, entry in ipairs(weights) do
         total = total + math.max(0, entry.weight or 0)
@@ -69,7 +75,7 @@ local function RollWeightedCategory(weights)
         return Config.ITEM_CATEGORY.WEAPON
     end
 
-    local roll = math.random() * total
+    local roll = DailyChallenge.RandomFloat(state) * total
     local acc = 0
     for _, entry in ipairs(weights) do
         acc = acc + math.max(0, entry.weight or 0)
@@ -82,7 +88,7 @@ local function RollWeightedCategory(weights)
 end
 
 local function RollItemCategory(state)
-    return RollWeightedCategory(BuildCategoryWeights(state))
+    return RollWeightedCategory(state, BuildCategoryWeights(state))
 end
 
 local function PutIntoStorage(state, item)
@@ -125,7 +131,7 @@ function FieldRewardService.CreateShopItems(state, quality)
     local rules = Config.SHOP or {}
     local itemCount = math.max(1, math.floor(rules.ITEM_COUNT or 2))
     local categories = { Config.ITEM_CATEGORY.PILL, Config.ITEM_CATEGORY.TALISMAN }
-    if math.random() < 0.5 then
+    if DailyChallenge.RandomFloat(state) < 0.5 then
         categories[1], categories[2] = categories[2], categories[1]
     end
 
@@ -151,7 +157,7 @@ function FieldRewardService.CreateRewardItem(state, quality)
 end
 
 function FieldRewardService.CreateConsumableReward(state, quality)
-    local category = math.random() < 0.5 and Config.ITEM_CATEGORY.PILL or Config.ITEM_CATEGORY.TALISMAN
+    local category = DailyChallenge.RandomFloat(state) < 0.5 and Config.ITEM_CATEGORY.PILL or Config.ITEM_CATEGORY.TALISMAN
     return ItemSystem.CreateItemByCategory(state, category, ClampRewardQuality(state, quality))
 end
 

@@ -6,6 +6,7 @@ local Config = require("Config")
 local RogueRewardSystem = require("rogue.RogueRewardSystem")
 local Stats = require("combat.Stats")
 local VisualEventQueue = require("events.VisualEventQueue")
+local DailyChallenge = require("DailyChallenge")
 
 local KillResolver = {}
 
@@ -66,10 +67,10 @@ local function GetMonsterCoinReward(monster)
     return math.max(1, math.floor(base * tierMultiplier + 0.5))
 end
 
-local function RollMonsterCoinReward(monster)
+local function RollMonsterCoinReward(state, monster)
     local rules = Config.SHOP or {}
     local dropChance = math.min(1.0, math.max(0.0, rules.KILL_COIN_DROP_CHANCE or 0))
-    if math.random() >= dropChance then
+    if DailyChallenge.RandomFloat(state) >= dropChance then
         return 0
     end
 
@@ -87,7 +88,7 @@ local function ResolveMonsterDeaths(state)
             table.insert(toRemove, i)
             local expReward = math.max(1, math.floor(monster.exp or 0))
             local expGain = RealmSystem.AddExp(state, expReward, { deferCheck = true })
-            local coinGain = RollMonsterCoinReward(monster)
+            local coinGain = RollMonsterCoinReward(state, monster)
             state.score = state.score + expGain
             if state.ascensionMode == true then
                 state.endlessKills = (state.endlessKills or 0) + 1

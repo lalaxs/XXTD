@@ -8,6 +8,7 @@ local RogueRewardSystem = require("rogue.RogueRewardSystem")
 local ReincarnationSystem = require("ReincarnationSystem")
 local GameEvents = require("GameEvents")
 local VisualEventQueue = require("events.VisualEventQueue")
+local DailyChallenge = require("DailyChallenge")
 
 local PlayerItemResolver = {}
 
@@ -237,7 +238,7 @@ local function CalculateBaseDamage(state, item, realm, slotIdx)
         + ReincarnationSystem.GetValue(state, "critChance")
         + RogueRewardSystem.GetModifierValue(state, "critChance")
         + GetWeaponModifier(state, item, "critChance")
-    if math.random() < critChance then
+    if DailyChallenge.RandomFloat(state) < critChance then
         didCrit = true
         local critMultiplier = (item.critMultiplier or 2.0) + RogueRewardSystem.GetModifierValue(state, "critDamagePct") + GetWeaponModifier(state, item, "critDamagePct")
         finalDmg = math.floor(finalDmg * critMultiplier)
@@ -247,7 +248,7 @@ local function CalculateBaseDamage(state, item, realm, slotIdx)
     local allBuff = BuffSystem.GetBuffValue(state, "allUp")
     local weaponDamageBuff = GetWeaponDamageBonus(state, item)
     local globalDamageMul = 1 + atkBuff + allBuff + weaponDamageBuff
-    finalDmg = math.floor(finalDmg * globalDamageMul)
+    finalDmg = math.floor(finalDmg * globalDamageMul * DailyChallenge.GetPlayerDamageMultiplier(state))
 
     local playerAttackDown = GetPlayerAttackDebuff(state)
     if playerAttackDown > 0 then
@@ -702,7 +703,7 @@ local function ResolveAttackItem(state, item, slotIdx, col, realm, silenced)
     if silenced then return end
 
     local extraChance = GetExtraAttackChance(state, item)
-    if extraChance > 0 and math.random() < extraChance then
+    if extraChance > 0 and DailyChallenge.RandomFloat(state) < extraChance then
         print(string.format("  [Attack] %s 触发追加出手", item.name))
         ResolveAttackItemOnce(state, item, slotIdx, col, realm, false)
     end

@@ -8,6 +8,7 @@ local KillResolver = require("combat.KillResolver")
 local RogueRewardSystem = require("rogue.RogueRewardSystem")
 local GameEvents = require("GameEvents")
 local VisualEventQueue = require("events.VisualEventQueue")
+local DailyChallenge = require("DailyChallenge")
 
 local ConsumableService = {}
 
@@ -189,7 +190,7 @@ local function CollectRandomAliveMonsters(state, targetCount)
     local count = math.min(targetCount, #candidates)
     local targets = {}
     for _ = 1, count do
-        local index = math.random(1, #candidates)
+        local index = DailyChallenge.RandomInt(state, #candidates)
         table.insert(targets, candidates[index])
         table.remove(candidates, index)
     end

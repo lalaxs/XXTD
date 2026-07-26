@@ -12,6 +12,12 @@ local MainMenuView = require("views.MainMenuView")
 local ReincarnationView = require("views.ReincarnationView")
 local RogueBuffListView = require("views.RogueBuffListView")
 local DebugStatusView = require("views.DebugStatusView")
+local TitleView = require("views.TitleView")
+local LeaderboardView = require("views.LeaderboardView")
+local DailyChallengeView = require("views.DailyChallengeView")
+local LeaderboardService = require("LeaderboardService")
+local DailyChallenge = require("DailyChallenge")
+local DailyChallengeProgress = require("DailyChallengeProgress")
 local FloatingTextView = require("views.FloatingTextView")
 local DebugStatusSystem = require("debug.DebugStatusSystem")
 local ReincarnationActions = require("actions.ReincarnationActions")
@@ -121,10 +127,14 @@ function UIController.Create(state, callbacks)
         reincarnationView = nil,
         rogueBuffListView = nil,
         debugStatusView = nil,
+        titleView = nil,
+        leaderboardView = nil,
+        dailyChallengeView = nil,
         floatingTextView = nil,
         dragContext = nil,
         inventoryMgr = nil,
         currentState_ = state,
+        currentDailyChallengeId_ = nil,
     }, UIController)
 
     self.inventoryMgr = UI.InventoryManager.new({
@@ -242,6 +252,50 @@ function UIController.Create(state, callbacks)
         self:UpgradeReincarnation(upgradeId)
     end)
     self.rogueBuffListView = RogueBuffListView.Create()
+    self.titleView = TitleView.Create({
+        onContinue = function()
+            if self.currentState_ and self.callbacks.onContinueRun then
+                self.callbacks.onContinueRun()
+            end
+        end,
+        onStart = function()
+            if self.callbacks.onStartGame then
+                self.callbacks.onStartGame()
+            end
+        end,
+        onLeaderboard = function()
+            self:ShowLeaderboard()
+        end,
+        onDailyChallenge = function()
+            if self.callbacks.onOpenDailyChallenge then
+                self.callbacks.onOpenDailyChallenge()
+            else
+                self:ShowOperationWarning("每日挑战暂不可用")
+            end
+        end,
+    })
+    self.leaderboardView = LeaderboardView.Create({
+        onRefresh = function()
+            self:RefreshLeaderboard()
+        end,
+        onRefreshDaily = function()
+            self:RefreshDailyLeaderboard()
+        end,
+    })
+    self.dailyChallengeView = DailyChallengeView.Create({
+        onStart = function()
+            if self.callbacks.onBeginDailyChallenge then
+                self.callbacks.onBeginDailyChallenge()
+            end
+        end,
+        onClose = function()
+            self:ShowTitle()
+        end,
+        onLeaderboard = function()
+            self:HideDailyChallenge()
+            self:ShowLeaderboard(self.currentDailyChallengeId_)
+        end,
+    })
     self.debugStatusView = DebugStatusView.Create({
         onApply = function(statusId)
             if self.currentState_ and DebugStatusSystem.Apply(self.currentState_, statusId) then
@@ -299,6 +353,9 @@ function UIController.Create(state, callbacks)
         self.mainMenuView:GetRoot(),
         self.reincarnationView:GetRoot(),
         self.rogueBuffListView:GetRoot(),
+        self.titleView:GetRoot(),
+        self.leaderboardView:GetRoot(),
+        self.dailyChallengeView:GetRoot(),
         self.debugStatusView:GetRoot(),
         self.gameOverPanel,
     }
@@ -323,6 +380,8 @@ function UIController.Create(state, callbacks)
 
     UI.SetRoot(self.uiRoot)
     self:UpdateAll(state)
+    self:ShowTitle()
+    print("[Title] 标题页面已显示")
     return self
 end
 
@@ -462,6 +521,62 @@ function UIController:ShowRogueBuffList()
     end
 end
 
+function UIController:ShowTitle()
+    if self.titleView then
+        self.titleView:Show()
+    end
+end
+
+function UIController:HideTitle()
+    if self.titleView then
+        self.titleView:Hide()
+    end
+end
+
+function UIController:ShowDailyChallenge(challenge, progress)
+    if not self.dailyChallengeView then return end
+    self.currentDailyChallengeId_ = challenge and challenge.id or nil
+    self.dailyChallengeView:Show(challenge, progress)
+end
+
+function UIController:HideDailyChallenge()
+    if self.dailyChallengeView then
+        self.dailyChallengeView:Hide()
+    end
+end
+
+function UIController:ShowLeaderboard(challengeId)
+    if not self.leaderboardView then return end
+    if challengeId then
+        self.currentDailyChallengeId_ = challengeId
+        self.leaderboardView:SetDailyChallengeId(challengeId)
+        self.leaderboardView:ShowDaily()
+        return
+    end
+    self.leaderboardView:ShowLoading()
+    self:RefreshLeaderboard()
+end
+
+function UIController:RefreshLeaderboard()
+    if not self.leaderboardView then return end
+    LeaderboardService.LoadTop(20, function(entries, myEntry, errorMessage)
+        self.leaderboardView:SetEntries(entries, myEntry, errorMessage)
+    end)
+end
+
+function UIController:RefreshDailyLeaderboard()
+    if not self.leaderboardView then return end
+    local challengeId = self.leaderboardView.dailyChallengeId
+    if not challengeId or challengeId == "" then
+        challengeId = DailyChallenge.ResolveToday().id
+        self.currentDailyChallengeId_ = challengeId
+        self.leaderboardView:SetDailyChallengeId(challengeId)
+    end
+    LeaderboardService.LoadDailyTop(challengeId, 20, function(entries, myEntry, errorMessage)
+        self.leaderboardView:SetDailyEntries(entries, myEntry, errorMessage)
+    end)
+end
+
 function UIController:ShowMainMenu()
     if self.mainMenuView and self.currentState_ then
         self.mainMenuView:Show(self.currentState_)
@@ -482,6 +597,9 @@ end
 
 function UIController:Update(dt)
     self.infoPanel:Update(dt)
+    if self.dailyChallengeView then
+        self.dailyChallengeView:Update(dt)
+    end
 end
 
 function UIController:SyncDataToManager(state)
@@ -722,9 +840,9 @@ function UIController:ShowGameOver(state)
 
     if state.isVictory then
         if title then
-            title:SetText(state.victoryReason == "ascension_death" and "无尽挑战结束" or "飞升成功")
+            title:SetText(state.dailyChallenge and "每日挑战完成" or (state.victoryReason == "ascension_death" and "无尽挑战结束" or "飞升成功"))
         end
-        if s then s:SetText("积分: " .. state.score .. "  击杀: " .. tostring(state.endlessKills or 0)) end
+        if s then s:SetText((state.dailyChallenge and "本局分数: " or "积分: ") .. state.score .. "  击杀: " .. tostring(state.endlessKills or 0)) end
         if r then
             r:SetText(state.victoryReason == "ascension_death"
                 and ("无尽波次: " .. tostring(state.endlessWaveIndex or 0))

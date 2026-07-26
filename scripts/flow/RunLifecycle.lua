@@ -4,6 +4,7 @@ local WaveSystem = require("WaveSystem")
 local RealmSystem = require("RealmSystem")
 local Stats = require("combat.Stats")
 local ReincarnationSystem = require("ReincarnationSystem")
+local DailyChallenge = require("DailyChallenge")
 
 local RunLifecycle = {}
 
@@ -60,11 +61,18 @@ function RunLifecycle.ResetOpeningWave(state)
     state.endlessBudget = 0
     state.endlessKills = 0
     state.endlessWaveActive = false
+    if DailyChallenge.IsActive(state) then
+        state.coins = state.coins + DailyChallenge.GetEffect(state, "initialCoinsAdd", 0)
+        Stats.RecalculateMaxHp(state, { fullHeal = true })
+    end
     WaveSystem.ForceSpawnWave(state)
 end
 
-function RunLifecycle.StartNewGame(progress)
+function RunLifecycle.StartNewGame(progress, runOptions)
     local state = GameState.New()
+    if runOptions and runOptions.dailyChallenge then
+        DailyChallenge.ApplyToState(state, runOptions.dailyChallenge)
+    end
     state.slots[1] = GameState.CreateItemByBaseId(state, Config.ITEM_CATEGORY.WEAPON, "qingfeng_sword", 1)
     state.waveCount = 0
     state.realmWaveIndex = 0
@@ -84,10 +92,16 @@ function RunLifecycle.StartNewGame(progress)
 end
 
 function RunLifecycle.RestartKeepingProgress(state)
+    if DailyChallenge.IsActive(state) then
+        return RunLifecycle.StartNewGame(nil, { dailyChallenge = DailyChallenge.ResolveToday() })
+    end
     return RunLifecycle.StartNewGame(RunLifecycle.CapturePermanentProgress(state))
 end
 
 function RunLifecycle.AbandonRunKeepingProgress(state)
+    if DailyChallenge.IsActive(state) then
+        return RunLifecycle.StartNewGame(nil)
+    end
     return RunLifecycle.StartNewGame(RunLifecycle.CapturePermanentProgress(state))
 end
 

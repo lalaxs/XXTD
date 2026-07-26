@@ -98,6 +98,7 @@ function GameState.New()
         shouldSpawnBreakthroughWave = false,
         breakthroughSpawnAllowance = 0,
         score = 0,
+        leaderboardSubmitted = false,
         
         -- 动画/UI状态
         visual = VisualState.Create(),

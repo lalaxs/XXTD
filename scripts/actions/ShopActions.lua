@@ -5,6 +5,7 @@ local Config = require("Config")
 local FieldRewardService = require("rewards.FieldRewardService")
 local BoardSystem = require("BoardSystem")
 local VisualEventQueue = require("events.VisualEventQueue")
+local DailyChallenge = require("DailyChallenge")
 
 local ShopActions = {}
 
@@ -22,27 +23,34 @@ local function StorePurchasedItem(state, item)
     return nil
 end
 
-local function GetRefreshCost(shop)
+local function GetRefreshCost(state, shop)
     local rules = Config.SHOP or {}
-    local basePrice = math.max(1, math.floor(rules.REFRESH_BASE_PRICE or 10))
-    local priceStep = math.max(0, math.floor(rules.REFRESH_PRICE_STEP or 10))
+    local baseMultiplier = DailyChallenge.GetEffect(state, "shopRefreshBaseMul", 1.0)
+    local stepMultiplier = DailyChallenge.GetEffect(state, "shopRefreshStepMul", 1.0)
+    local basePrice = math.max(1, math.floor((rules.REFRESH_BASE_PRICE or 10) * baseMultiplier + 0.5))
+    local priceStep = math.max(0, math.floor((rules.REFRESH_PRICE_STEP or 10) * stepMultiplier + 0.5))
     local refreshCount = math.max(0, math.floor(shop and shop.refreshCount or 0))
     return basePrice + refreshCount * priceStep
+end
+
+local function GetShopMinQuality(state)
+    local minQuality, maxQuality = Config.GetDropQualityRange(state.realmIndex or 1)
+    local shift = math.floor(DailyChallenge.GetEffect(state, "rewardQualityShift", 0))
+    return math.min(maxQuality, math.max(minQuality, minQuality + shift))
 end
 
 local function EnsureShopInventory(state)
     if state.shopInventory then
         state.shopInventory.refreshCount = math.max(0, math.floor(state.shopInventory.refreshCount or 0))
-        state.shopInventory.refreshCost = GetRefreshCost(state.shopInventory)
+        state.shopInventory.refreshCost = GetRefreshCost(state, state.shopInventory)
         return state.shopInventory
     end
-    local minQuality = Config.GetDropQualityRange(state.realmIndex or 1)
-    local quality = minQuality
+    local quality = GetShopMinQuality(state)
     state.shopInventory = {
         id = "fixed_shop",
         title = "云游商铺",
         refreshCount = 0,
-        refreshCost = GetRefreshCost({ refreshCount = 0 }),
+        refreshCost = GetRefreshCost(state, { refreshCount = 0 }),
         items = FieldRewardService.CreateShopItems(state, quality),
     }
     return state.shopInventory
@@ -88,15 +96,15 @@ function ShopActions.Refresh(state)
         return { ok = false, message = "商铺未打开" }
     end
 
-    local price = GetRefreshCost(shop)
+    local price = GetRefreshCost(state, shop)
     if (state.coins or 0) < price then
         return { ok = false, message = "金币不足" }
     end
 
-    local minQuality = Config.GetDropQualityRange(state.realmIndex or 1)
+    local minQuality = GetShopMinQuality(state)
     state.coins = (state.coins or 0) - price
     shop.refreshCount = math.max(0, math.floor(shop.refreshCount or 0)) + 1
-    shop.refreshCost = GetRefreshCost(shop)
+    shop.refreshCost = GetRefreshCost(state, shop)
     shop.items = FieldRewardService.CreateShopItems(state, minQuality)
 
     local message = string.format("商店已刷新，花费%d金币", price)

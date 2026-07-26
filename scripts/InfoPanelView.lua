@@ -662,6 +662,9 @@ function InfoPanelView:ShowMonster(monster)
     end
 
     local states = {}
+    if monster.enraged then
+        AddLine(states, "狂暴: 攻击+75% / 防御+60%")
+    end
     if (monster.rootTurns or 0) > 0 then AddLine(states, string.format("定身%d", monster.rootTurns)) end
     if (monster.stealthTurns or 0) > 0 then AddLine(states, string.format("隐身%d", monster.stealthTurns)) end
     if (monster.tauntTurns or 0) > 0 then AddLine(states, string.format("嘲讽%d", monster.tauntTurns)) end

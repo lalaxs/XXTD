@@ -2,6 +2,7 @@ local Config = require("Config")
 local FieldRewardService = require("rewards.FieldRewardService")
 local RogueRewardSystem = require("rogue.RogueRewardSystem")
 local ReincarnationSystem = require("ReincarnationSystem")
+local DailyChallenge = require("DailyChallenge")
 
 local FieldRewardSystem = {}
 
@@ -70,7 +71,7 @@ local function PickRewardColumn(state)
         if not TopRowBlocked(state, col) then
             local deployed = CountDeployedItemsInColumn(state, col)
             local monsters = CountMonstersInColumn(state, col)
-            local score = math.random() * (rules.RANDOM_JITTER or 0.5)
+            local score = DailyChallenge.RandomFloat(state) * (rules.RANDOM_JITTER or 0.5)
             score = score + deployed * (rules.DEPLOYED_COLUMN_BONUS or 2.0)
             score = score - monsters * (rules.MONSTER_PRESSURE_PENALTY or 0.7)
 
@@ -91,7 +92,7 @@ local function PickRewardColumn(state)
     end
 
     if #bestCols == 0 then return nil end
-    return bestCols[math.random(#bestCols)]
+    return bestCols[DailyChallenge.RandomInt(state, #bestCols)]
 end
 
 local function GetRewardSpawnChance(state)
@@ -107,7 +108,7 @@ local function GetRewardSpawnChance(state)
     return math.min(rules.MAX_SPAWN_CHANCE or 0.85, spawnChance)
 end
 
-local function MonsterMovementBlocked(monster)
+local function MonsterMovementBlocked(state, monster)
     if monster.monsterType == Config.MONSTER_TYPE.MELEE and monster.row >= Config.FIELD_ROWS then
         return true
     end
@@ -118,7 +119,7 @@ local function MonsterMovementBlocked(monster)
         return true
     elseif monster.slowed and monster.slowed > 0 then
         if monster.plannedSkipMovement == nil then
-            monster.plannedSkipMovement = math.random() < monster.slowed
+            monster.plannedSkipMovement = DailyChallenge.RandomFloat(state) < monster.slowed
         end
         return monster.plannedSkipMovement
     end
@@ -142,7 +143,7 @@ local function BuildFieldMovementPlans(state)
                 index = i,
                 row = monster.row,
                 col = monster.col,
-                canMove = not MonsterMovementBlocked(monster),
+                canMove = not MonsterMovementBlocked(state, monster),
             })
         end
     end
@@ -229,6 +230,7 @@ end
 
 function FieldRewardSystem.RollRewardQuality(state)
     local shift = math.floor(RogueRewardSystem.GetModifierValue(state, "fieldRewardQualityShift"))
+        + math.floor(DailyChallenge.GetEffect(state, "rewardQualityShift", 0))
     local minQuality, maxQuality = Config.GetDropQualityRange(state.realmIndex or 1)
     local total = 0
     for _, entry in ipairs(Config.DROP_RULES.QUALITY_WEIGHTS or {}) do
@@ -239,7 +241,7 @@ function FieldRewardSystem.RollRewardQuality(state)
     end
     if total <= 0 then return minQuality end
 
-    local roll = math.random() * total
+    local roll = DailyChallenge.RandomFloat(state) * total
     local acc = 0
     for _, entry in ipairs(Config.DROP_RULES.QUALITY_WEIGHTS or {}) do
         local quality = entry.quality or 1
@@ -247,7 +249,7 @@ function FieldRewardSystem.RollRewardQuality(state)
             acc = acc + math.max(0, entry.weight or 0)
             if roll <= acc then
                 local shiftedQuality = math.min(maxQuality, math.max(minQuality, quality + shift))
-                if shiftedQuality < maxQuality and math.random() < ReincarnationSystem.GetValue(state, "rewardQuality") then
+                if shiftedQuality < maxQuality and DailyChallenge.RandomFloat(state) < ReincarnationSystem.GetValue(state, "rewardQuality") then
                     shiftedQuality = shiftedQuality + 1
                 end
                 return shiftedQuality
@@ -255,7 +257,7 @@ function FieldRewardSystem.RollRewardQuality(state)
         end
     end
     local fallbackQuality = math.min(maxQuality, math.max(minQuality, minQuality + shift))
-    if fallbackQuality < maxQuality and math.random() < ReincarnationSystem.GetValue(state, "rewardQuality") then
+    if fallbackQuality < maxQuality and DailyChallenge.RandomFloat(state) < ReincarnationSystem.GetValue(state, "rewardQuality") then
         fallbackQuality = fallbackQuality + 1
     end
     return fallbackQuality
@@ -271,13 +273,13 @@ local function PickFallbackCell(state)
         end
     end
     if #cells == 0 then return nil end
-    return cells[math.random(#cells)]
+    return cells[DailyChallenge.RandomInt(state, #cells)]
 end
 
 local function CreateRewardAtCell(state, col, row, sourceLabel)
     local rewardQuality = FieldRewardSystem.RollRewardQuality(state)
     local fieldEntity = {
-        id = string.format("field_%d_%d_%d", state.turn or 0, col, math.random(1000000)),
+        id = string.format("field_%d_%d_%d", state.turn or 0, col, DailyChallenge.RandomInt(state, 1000000)),
         entityType = "reward",
         col = col,
         row = row,
@@ -313,7 +315,7 @@ function FieldRewardSystem.SpawnFieldRewards(state)
     if state.fieldRewardTurnsSinceSpawn < (Config.FIELD_REWARD.MIN_INTERVAL or 2) then return end
 
     local spawnChance = GetRewardSpawnChance(state)
-    if math.random() > spawnChance then return end
+    if DailyChallenge.RandomFloat(state) > spawnChance then return end
 
     SpawnRewardAtTop(state, "随机奖励")
 end

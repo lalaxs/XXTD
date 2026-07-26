@@ -4,6 +4,7 @@
 local Config = require("Config")
 local BoardSystem = require("BoardSystem")
 local RogueRewardDefs = require("config.RogueRewardDefs")
+local DailyChallenge = require("DailyChallenge")
 
 local RogueRewardSystem = {}
 
@@ -102,7 +103,7 @@ local function CopyReward(state, def)
     }
 end
 
-local function WeightedPick(candidates, picked, predicate)
+local function WeightedPick(state, candidates, picked, predicate)
     local options, total = {}, 0
     for _, def in ipairs(candidates) do
         if not picked[def.id] and (not predicate or predicate(def)) then
@@ -113,7 +114,7 @@ local function WeightedPick(candidates, picked, predicate)
     end
     if total <= 0 then return nil end
 
-    local roll = math.random() * total
+    local roll = DailyChallenge.RandomFloat(state) * total
     for _, option in ipairs(options) do
         if roll <= option.edge then return option.def end
     end
@@ -156,12 +157,12 @@ local function BuildOffer(state, candidates)
         return true
     end
 
-    local first = WeightedPick(candidates, ids, function(def)
+    local first = WeightedPick(state, candidates, ids, function(def)
         return def.immediate and canPick(def)
     end)
     add(first)
     while #selected < math.min(3, #candidates) do
-        local nextDef = WeightedPick(candidates, ids, canPick)
+        local nextDef = WeightedPick(state, candidates, ids, canPick)
         if not nextDef then break end
         add(nextDef)
     end

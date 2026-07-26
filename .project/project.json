@@ -8,7 +8,7 @@
   "version": "1.0.0",
   "taptap_publish": {
     "developer_id": 399464,
-    "title": "<game title, required>",
+    "title": "一把仙剑闯天关",
     "description": "<game description>",
     "category": "<game category: rpg, casual, action, strategy, simulation, trivia, arcade, adventure, card, sports, racing, puzzle, educational, music, word, board>",
     "screen_orientation": "portrait",

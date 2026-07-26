@@ -3,6 +3,7 @@ local RealmSystem = require("RealmSystem")
 local BoardSystem = require("BoardSystem")
 local ItemPoolService = require("items.ItemPoolService")
 local RogueRewardSystem = require("rogue.RogueRewardSystem")
+local DailyChallenge = require("DailyChallenge")
 
 local ItemSystem = {}
 
@@ -116,16 +117,18 @@ function ItemSystem.GenerateRandomItem(state)
     for _, entry in ipairs(categoryWeights) do
         local bonus = RogueRewardSystem.GetModifierValue(state, "itemCategoryWeightPct:" .. tostring(entry.category))
         local multiplier = math.max(0, 1 + bonus)
+            * DailyChallenge.GetEffect(state, "itemCategoryWeightMul_" .. tostring(entry.category), 1.0)
         totalCategoryWeight = totalCategoryWeight + math.max(0, (entry.weight or 0) * multiplier)
     end
 
     local category = Config.ITEM_CATEGORY.WEAPON
     if totalCategoryWeight > 0 then
-        local categoryRoll = math.random() * totalCategoryWeight
+        local categoryRoll = DailyChallenge.RandomFloat(state) * totalCategoryWeight
         local categoryAcc = 0
         for _, entry in ipairs(categoryWeights) do
             local bonus = RogueRewardSystem.GetModifierValue(state, "itemCategoryWeightPct:" .. tostring(entry.category))
             local multiplier = math.max(0, 1 + bonus)
+                * DailyChallenge.GetEffect(state, "itemCategoryWeightMul_" .. tostring(entry.category), 1.0)
             categoryAcc = categoryAcc + math.max(0, (entry.weight or 0) * multiplier)
             if categoryRoll <= categoryAcc then
                 category = entry.category
@@ -146,7 +149,7 @@ function ItemSystem.GenerateRandomItem(state)
 
     local quality = minQuality
     if totalQualityWeight > 0 then
-        local qualityRoll = math.random() * totalQualityWeight
+        local qualityRoll = DailyChallenge.RandomFloat(state) * totalQualityWeight
         local qualityAcc = 0
         for _, entry in ipairs(qualityWeights) do
             local entryQuality = entry.quality or 1

@@ -6,6 +6,7 @@ local WeaponDefs = require("config.WeaponDefs")
 local ArmorDefs = require("config.ArmorDefs")
 local PillDefs = require("config.PillDefs")
 local TalismanDefs = require("config.TalismanDefs")
+local DailyChallenge = require("DailyChallenge")
 
 local ItemPoolService = {}
 
@@ -103,7 +104,7 @@ function ItemPoolService.RollDefinition(category, quality, state)
     local totalWeight = 0
     for _, def in ipairs(pool) do totalWeight = totalWeight + math.max(0, def.weight or 1) end
     if totalWeight <= 0 then return pool[1] end
-    local roll, acc = math.random() * totalWeight, 0
+    local roll, acc = DailyChallenge.RandomFloat(state) * totalWeight, 0
     for _, def in ipairs(pool) do
         acc = acc + math.max(0, def.weight or 1)
         if roll <= acc then return def end

@@ -4,6 +4,7 @@
 local Config = require("Config")
 local ReincarnationSystem = require("ReincarnationSystem")
 local RogueRewardSystem = require("rogue.RogueRewardSystem")
+local DailyChallenge = require("DailyChallenge")
 
 local Stats = {}
 
@@ -12,7 +13,8 @@ function Stats.GetMaxHp(state)
     local baseHp = realm.maxHp or Config.PLAYER.BASE_HP
     local permanentBonus = 1.0 + ReincarnationSystem.GetValue(state, "maxHp")
     local rogueBonus = 1.0 + RogueRewardSystem.GetModifierValue(state, "maxHpPct")
-    return math.max(1, math.floor(baseHp * permanentBonus * rogueBonus))
+    local challengeMultiplier = DailyChallenge.GetEffect(state, "playerMaxHpMul", 1.0)
+    return math.max(1, math.floor(baseHp * permanentBonus * rogueBonus * challengeMultiplier))
 end
 
 function Stats.RecalculateMaxHp(state, options)
