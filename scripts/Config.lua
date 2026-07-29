@@ -11,6 +11,7 @@ local Config = {}
 -- ============================================================================
 Config.DEBUG = {
     ENABLE_PLAYER_STATUS_PANEL = true,
+    ENABLE_WEAPON_TEST_PANEL = true,
     PLAYER_STATUS_DURATION = 99,
 }
 
@@ -263,6 +264,9 @@ Config.MONSTER_EXP_EARLY_MAJOR_BONUS = 0.10
 -- 敌人血攻成长只在飞升后继续游戏的无尽模式生效；普通境界内每波敌人数值保持不变。
 Config.WAVE_ENEMY_HP_GROWTH = 0.04
 Config.WAVE_ENEMY_ATK_GROWTH = 0.03
+-- 后期玩家武器和技能成长更快，按大境界平滑提高怪物生命值，避免后期失去压力。
+-- 前四个大境界保持原有数值；从化神开始逐步增加，最高约为基础生命的 1.48 倍。
+Config.LATE_GAME_ENEMY_HP_MUL_BY_MAJOR = { 1.00, 1.00, 1.00, 1.00, 1.08, 1.16, 1.26, 1.36, 1.48 }
 Config.REALM_ENEMY_ATK_SCALE = { 1.0, 1.0, 0.55, 0.72, 0.70, 0.68, 0.66, 0.64, 0.62 }
 Config.ENDLESS_WAVE_BUDGET_GROWTH = 0.08
 Config.ENDLESS_WAVE_HP_GROWTH = 0.035

@@ -1,5 +1,5 @@
 -- combat/PlayerItemResolver.lua
--- 部署区道具生效解析。负责法宝攻击、命中目标与防御道具列效果。
+-- 15 种攻击法宝基础效果、Q1-Q9 累计成长和具名肉鸽技能统一结算。
 
 local Config = require("Config")
 local BuffSystem = require("BuffSystem")
@@ -7,743 +7,527 @@ local FieldRewardService = require("rewards.FieldRewardService")
 local RogueRewardSystem = require("rogue.RogueRewardSystem")
 local ReincarnationSystem = require("ReincarnationSystem")
 local GameEvents = require("GameEvents")
-local VisualEventQueue = require("events.VisualEventQueue")
 local DailyChallenge = require("DailyChallenge")
+local Stats = require("combat.Stats")
+local DefenseDown = require("combat.DefenseDown")
+local KillResolver = require("combat.KillResolver")
+local EnemyDamage = require("combat.EnemyDamage")
 
 local PlayerItemResolver = {}
 
-local function IsMonsterTargetable(monster)
-    return monster and monster.hp > 0 and not ((monster.stealthTurns or 0) > 0)
+local ResolveSingleAttack
+
+local function HasSkill(state, skillId)
+    return (state.weaponUpgradeLevels or {})["weaponSkill:" .. skillId] ~= nil
 end
 
-local function FindTauntTarget(state, col)
-    local picked = nil
-    local pickedRow = -1
-    for _, monster in ipairs(state.monsters) do
-        if IsMonsterTargetable(monster) and (monster.tauntTurns or 0) > 0 then
-            local range = monster.tauntRange or 2
-            if math.abs(monster.col - col) <= range and monster.row > pickedRow then
-                picked = monster
-                pickedRow = monster.row
-            end
-        end
-    end
-    return picked
+local function IsLive(monster)
+    return monster and monster.hp and monster.hp > 0 and (monster.stealthTurns or 0) <= 0
 end
 
-local function FindFrontTarget(state, col)
-    local tauntTarget = FindTauntTarget(state, col)
-    if tauntTarget then
-        return tauntTarget, nil
-    end
-
-    local frontMonster = nil
-    local frontFieldReward = nil
-    local frontRow = -1
-
-    for _, monster in ipairs(state.monsters) do
-        if IsMonsterTargetable(monster) and monster.col == col and monster.row > frontRow then
-            frontMonster = monster
-            frontFieldReward = nil
-            frontRow = monster.row
-        end
-    end
-
-    for _, fieldReward in ipairs(state.fieldRewards) do
-        if fieldReward.col == col and fieldReward.hp > 0 and fieldReward.row > frontRow then
-            frontFieldReward = fieldReward
-            frontMonster = nil
-            frontRow = fieldReward.row
-        end
-    end
-
-    return frontMonster, frontFieldReward
+local function WeaponState(state, item)
+    state.weaponCombatState = state.weaponCombatState or {}
+    local id = item.combatInstanceId or ("legacy:" .. tostring(item))
+    state.weaponCombatState[id] = state.weaponCombatState[id] or {}
+    return state.weaponCombatState[id]
 end
 
-local function AddMonsterTarget(targets, seenMonsters, monster, multiplier)
-    if not IsMonsterTargetable(monster) or seenMonsters[monster] then return end
-    seenMonsters[monster] = true
-    table.insert(targets, {
-        targetType = "monster",
-        target = monster,
-        col = monster.col,
-        row = monster.row,
-        multiplier = multiplier or 1.0,
+local function CurrentWeaponDamage(state, item, realm)
+    local value = (item.atk or item.power or 0) * (realm.atkMul or 1)
+    value = value * (1 + (item.weaponDamagePct or 0) + RogueRewardSystem.GetModifierValue(state, "weaponDamagePct") + ReincarnationSystem.GetValue(state, "attack"))
+    value = value * (1 + BuffSystem.GetBuffValue(state, "atkUp") + BuffSystem.GetBuffValue(state, "allUp"))
+    value = value * DailyChallenge.GetPlayerDamageMultiplier(state)
+    local down = state.playerDebuffs and state.playerDebuffs.attackDown
+    if down and (down.turns or 0) > 0 then value = value * math.max(0, 1 - math.min(0.20, down.value or 0)) end
+    return math.max(1, math.floor(value + 0.5))
+end
+
+local function CritData(state, item, weaponState, options)
+    options = options or {}
+    local chance = (item.crit or 0) + RogueRewardSystem.GetModifierValue(state, "critChance") + ReincarnationSystem.GetValue(state, "critChance")
+    if item.baseId == "fuyao_chain" then
+        chance = chance + (weaponState.chainMomentum or 0) + (HasSkill(state, "chain_spirit") and 0.15 or 0)
+    end
+    chance = math.min(1, math.max(0, chance + (options.critChanceBonus or 0)))
+    local multiplier = (item.critMultiplier or 2.0) + RogueRewardSystem.GetModifierValue(state, "critDamagePct")
+    if item.baseId == "fuyao_chain" then multiplier = multiplier + (HasSkill(state, "chain_spirit") and 0.15 or 0) end
+    if options.multiplier then multiplier = options.multiplier end
+    local didCrit = options.forceCrit == true or (options.forceCrit ~= false and DailyChallenge.RandomFloat(state) < chance)
+    return didCrit, multiplier
+end
+
+local function AddAttackEvent(state, item, slotIdx, target, didCrit, opts)
+    opts = opts or {}
+    table.insert(state.lastAttackEvents, {
+        slotIdx = slotIdx, col = ((slotIdx - 1) % Config.GRID_COLS) + 1,
+        targetType = opts.targetType or "monster", targetCol = target.col, targetRow = target.row, target = target,
+        attackMode = item.attackMode or "single", baseId = item.baseId, school = item.school,
+        quality = item.quality, crit = didCrit == true, visualVariant = opts.visualVariant,
+        skillId = opts.skillId, effectScale = opts.effectScale or 1,
     })
 end
 
-local function AddFieldRewardTarget(targets, seenFieldRewards, fieldReward, multiplier)
-    if not fieldReward or fieldReward.hp <= 0 or seenFieldRewards[fieldReward] then return end
-    seenFieldRewards[fieldReward] = true
-    table.insert(targets, {
-        targetType = "fieldReward",
-        target = fieldReward,
-        col = fieldReward.col,
-        row = fieldReward.row,
-        multiplier = multiplier or 1.0,
-    })
+local function IsBoss(monster) return monster.tier == Config.MONSTER_TIER.BOSS end
+local function IsElite(monster) return monster.tier == Config.MONSTER_TIER.ELITE end
+
+local function DamageMonster(state, item, monster, raw, context)
+    if not IsLive(monster) or raw <= 0 then return 0, 0 end
+    return EnemyDamage.Apply(state, item, monster, raw, context)
 end
 
-local function CollectSameColumnTargets(state, col, maxCount, decay)
-    local tauntTarget = FindTauntTarget(state, col)
-    if tauntTarget then
-        return {
-            {
-                targetType = "monster",
-                target = tauntTarget,
-                row = tauntTarget.row,
-                col = tauntTarget.col,
-                multiplier = 1.0,
-            }
-        }
-    end
-
-    local entities = {}
-    for _, monster in ipairs(state.monsters) do
-        if IsMonsterTargetable(monster) and monster.col == col then
-            table.insert(entities, { targetType = "monster", target = monster, row = monster.row, col = monster.col })
-        end
-    end
-    for _, fieldReward in ipairs(state.fieldRewards) do
-        if fieldReward.col == col and fieldReward.hp > 0 then
-            table.insert(entities, { targetType = "fieldReward", target = fieldReward, row = fieldReward.row, col = fieldReward.col })
-        end
-    end
-
-    table.sort(entities, function(a, b)
-        return a.row > b.row
-    end)
-
-    local targets = {}
-    local limit = maxCount or 1
-    for i, entity in ipairs(entities) do
-        if limit < 99 and i > limit then break end
-        entity.multiplier = decay and (decay ^ (i - 1)) or 1.0
-        table.insert(targets, entity)
-    end
-
-    return targets
-end
-
-local function CollectPatternTargets(state, centerCol, centerRow, pattern, primaryMultiplier, splashMultiplier)
-    local targets = {}
-    local seenMonsters = {}
-    local seenFieldRewards = {}
-
-    local function inPattern(col, row)
-        if pattern == "global" then
-            return true
-        elseif pattern == "square_3x3" then
-            return math.abs(col - centerCol) <= 1 and math.abs(row - centerRow) <= 1
-        elseif pattern == "adjacent_col_same_row" then
-            return math.abs(col - centerCol) <= 1 and row == centerRow
-        end
-        return col == centerCol and math.abs(row - centerRow) <= 1
-    end
-
-    for _, monster in ipairs(state.monsters) do
-        if IsMonsterTargetable(monster) and inPattern(monster.col, monster.row) then
-            local multiplier = (monster.col == centerCol and monster.row == centerRow) and primaryMultiplier or splashMultiplier
-            AddMonsterTarget(targets, seenMonsters, monster, multiplier)
-        end
-    end
-    for _, fieldReward in ipairs(state.fieldRewards) do
-        if fieldReward.hp > 0 and inPattern(fieldReward.col, fieldReward.row) then
-            local multiplier = (fieldReward.col == centerCol and fieldReward.row == centerRow) and primaryMultiplier or splashMultiplier
-            AddFieldRewardTarget(targets, seenFieldRewards, fieldReward, multiplier)
-        end
-    end
-
-    table.sort(targets, function(a, b)
-        if a.row == b.row then return a.col < b.col end
-        return a.row > b.row
-    end)
-
-    return targets
-end
-
-local function UpgradeAreaPattern(pattern)
-    if pattern == "global" then return "global" end
-    if pattern == "square_3x3" then return "global" end
-    if pattern == "adjacent_col_same_row" then return "square_3x3" end
-    return "adjacent_col_same_row"
-end
-
-local function GetWeaponModifier(state, item, key)
-    return RogueRewardSystem.GetModifierValue(state, key .. ":" .. tostring(item.baseId))
-end
-
-local function CollectAttackTargets(state, item, col)
-    local mode = item.attackMode or "single"
-
-    if mode == "pierce" then
-        local pierceCount = item.pierceCount or 0
-        pierceCount = pierceCount + GetWeaponModifier(state, item, "pierceBonus")
-        return CollectSameColumnTargets(state, col, pierceCount >= 99 and 99 or (1 + pierceCount), 0.8)
-    end
-
-    local frontMonster, frontFieldReward = FindFrontTarget(state, col)
-    local primary = frontMonster or frontFieldReward
-    if not primary then return {} end
-
-    local centerRow = primary.row
-    if mode == "sweep" then
-        local splashRatio = (item.splashRatio or 0.5) + GetWeaponModifier(state, item, "sweepSplashPct")
-        if item.baseId == "qingyu_fan" and (item.quality or 0) >= 7 then
-            splashRatio = math.max(splashRatio, 1.0)
-        end
-        return CollectPatternTargets(state, primary.col or col, centerRow, "adjacent_col_same_row", 1.0, splashRatio)
-    elseif mode == "area" or mode == "guardian" then
-        local pattern = item.areaPattern or "same_col_adjacent"
-        if GetWeaponModifier(state, item, "areaRangeBonus") > 0 then
-            pattern = UpgradeAreaPattern(pattern)
-        end
-        return CollectPatternTargets(state, primary.col or col, centerRow, pattern, 1.0, mode == "guardian" and 0.80 or 0.50)
-    end
-
-    local targets = {}
-    local seenMonsters = {}
-    local seenFieldRewards = {}
-    if frontMonster then
-        AddMonsterTarget(targets, seenMonsters, frontMonster, 1.0)
-    else
-        AddFieldRewardTarget(targets, seenFieldRewards, frontFieldReward, 1.0)
-    end
-    return targets
-end
-
-local function GetWeaponDamageBonus(state, item)
-    return RogueRewardSystem.GetModifierValue(state, "weaponDamagePct")
-        + GetWeaponModifier(state, item, "weaponDamagePct")
-        + ReincarnationSystem.GetValue(state, "attack")
-end
-
-local function GetExtraAttackChance(state, item)
-    local atkSpeed = item.atkSpeed or 1.0
-    local buffBonus = BuffSystem.GetBuffValue(state, "atkSpeedUp")
-    return math.max(0, atkSpeed * (1 + buffBonus) - 1)
-end
-
-local function GetPlayerAttackDebuff(state)
-    local debuff = state.playerDebuffs and state.playerDebuffs.attackDown
-    if not debuff or (debuff.turns or 0) <= 0 then return 0 end
-    return math.min(0.20, debuff.value or 0)
-end
-
-local function CalculateBaseDamage(state, item, realm, slotIdx)
-    local baseDmg = item.atk or item.power or 0
-    local finalDmg = math.floor(baseDmg * realm.atkMul)
-    local didCrit = false
-    local critChance = (item.crit or 0)
-        + ReincarnationSystem.GetValue(state, "critChance")
-        + RogueRewardSystem.GetModifierValue(state, "critChance")
-        + GetWeaponModifier(state, item, "critChance")
-    if DailyChallenge.RandomFloat(state) < critChance then
-        didCrit = true
-        local critMultiplier = (item.critMultiplier or 2.0) + RogueRewardSystem.GetModifierValue(state, "critDamagePct") + GetWeaponModifier(state, item, "critDamagePct")
-        finalDmg = math.floor(finalDmg * critMultiplier)
-    end
-
-    local atkBuff = BuffSystem.GetBuffValue(state, "atkUp")
-    local allBuff = BuffSystem.GetBuffValue(state, "allUp")
-    local weaponDamageBuff = GetWeaponDamageBonus(state, item)
-    local globalDamageMul = 1 + atkBuff + allBuff + weaponDamageBuff
-    finalDmg = math.floor(finalDmg * globalDamageMul * DailyChallenge.GetPlayerDamageMultiplier(state))
-
-    local playerAttackDown = GetPlayerAttackDebuff(state)
-    if playerAttackDown > 0 then
-        finalDmg = math.floor(finalDmg * (1 - playerAttackDown))
-    end
-
-    local shockedTurns = state.shockedSlots and state.shockedSlots[slotIdx]
-    if shockedTurns and shockedTurns > 0 then
-        local reduction = state.shockedSlotReduction and state.shockedSlotReduction[slotIdx] or 0
-        finalDmg = math.floor(finalDmg * math.max(0, 1 - reduction))
-    end
-
-    return math.max(1, finalDmg), didCrit
-end
-
-local function ApplyMonsterDamageModifiers(state, item, monster, damage)
-    local rawDmg = damage
-    local monsterDefense = math.max(0, monster.defense or 0)
-    local ignoreDefense = math.min(1.0, (item.defIgnore or 0) + GetWeaponModifier(state, item, "defIgnorePct"))
-    local defenseDown = math.min(1.0, monster.defenseDown or 0)
-    local effectiveDefense = monsterDefense * (1 - ignoreDefense) * (1 - defenseDown)
-    effectiveDefense = math.min(effectiveDefense, rawDmg * 0.5)
-
-    local finalDmg = math.max(1, math.floor(rawDmg - effectiveDefense))
-
-    if monster.skill and monster.skill.damageReduction then
-        finalDmg = math.floor(finalDmg * math.max(0, 1 - monster.skill.damageReduction))
-    end
-
-    if monster.vulnerable and monster.vulnerable > 0 then
-        finalDmg = math.floor(finalDmg * (1 + monster.vulnerable))
-    end
-
-    if (monster.rootTurns or 0) > 0 then
-        local rootedDamageBuff = RogueRewardSystem.GetModifierValue(state, "rootedDamagePct")
-        if rootedDamageBuff > 0 then
-            finalDmg = math.floor(finalDmg * (1 + rootedDamageBuff))
-        end
-    end
-
-    if item.baseId == "bishui_sword" and (monster.attackDown or 0) > 0 and (item.quality or 0) >= 7 then
-        local bonus = item.quality >= 9 and 0.30 or (item.quality >= 8 and 0.25 or 0.20)
-        finalDmg = math.floor(finalDmg * (1 + bonus))
-    end
-
-    if item.baseId == "taiji_sword" and (item.quality or 0) >= 6 then
-        local bonus = item.quality >= 9 and 0.25 or (item.quality >= 8 and 0.20 or (item.quality >= 7 and 0.15 or 0.10))
-        finalDmg = math.floor(finalDmg * (1 + bonus))
-    end
-
-    if monster.tier == Config.MONSTER_TIER.ELITE or monster.tier == Config.MONSTER_TIER.BOSS then
-        local eliteDamageBuff = RogueRewardSystem.GetModifierValue(state, "eliteDamagePct")
-        finalDmg = math.floor(finalDmg * (1 + eliteDamageBuff))
-    end
-
-    return math.max(1, finalDmg)
-end
-
-local function ApplyMonsterShield(monster, damage)
-    local shield = monster.shieldAmount or 0
-    if shield <= 0 then return damage, 0 end
-
-    local absorbed = math.min(damage, shield)
-    monster.shieldAmount = shield - absorbed
-    return damage - absorbed, absorbed
-end
-
-local function ApplySurvivalSkill(monster)
-    local skill = monster.skill
-    if not skill or skill.id ~= "holy_revival" or monster.revivalTriggered then return end
-    local threshold = skill.hpThreshold or 0.35
-    if monster.hp > 0 and monster.hp <= monster.maxHp * threshold then
-        local heal = math.floor(monster.maxHp * (skill.healPercent or 0.35))
-        monster.hp = math.min(monster.maxHp, monster.hp + heal)
-        monster.revivalTriggered = true
-        print(string.format("  [Skill] %s 触发圣躯复苏，恢复%d", monster.name, heal))
-    end
-end
-
-local function AddDamageEvent(state, monster, damage)
-    if not monster or damage <= 0 then return end
-    local event = {
-        col = monster.col,
-        row = monster.row,
-        dmg = damage,
-        target = monster,
-    }
-    table.insert(state.lastDamageDealt, event)
-    VisualEventQueue.PushDamageDealt(state, event)
-end
-
-local function ApplyDirectMonsterDamage(state, monster, amount, label)
-    local damage = math.floor(amount or 0)
-    if not IsMonsterTargetable(monster) or damage <= 0 then return 0 end
-    monster.hp = monster.hp - damage
-    AddDamageEvent(state, monster, damage)
-    ApplySurvivalSkill(monster)
-    if label then
-        print(string.format("  [%s] %s 受到%d伤害", label, monster.name, damage))
-    end
+local function ExtraDamage(state, item, target, amount, skillId)
+    local damage = DamageMonster(state, item, target, math.floor(amount + 0.5), { skillId = skillId, visualVariant = "skill" })
+    if damage > 0 then print(string.format("  [Weapon Skill] %s %s 追加%d", item.name, skillId or "基础", damage)) end
     return damage
 end
 
-local function ApplyPoisonExplosionMark(monster, damage, pattern, label, turns)
-    if not monster then return end
-    monster.poisonExplosionDamage = math.max(monster.poisonExplosionDamage or 0, math.max(1, math.floor(damage or 0)))
-    monster.poisonExplosionPattern = pattern or monster.poisonExplosionPattern or "same_col_adjacent"
-    monster.poisonExplosionLabel = label or monster.poisonExplosionLabel or "毒爆"
-    monster.poisonExplosionTurns = math.max(monster.poisonExplosionTurns or 0, turns or 1)
+local function TryHardControl(state, monster, kind)
+    if IsBoss(monster) then return false, "boss_immune" end
+    if IsElite(monster) and DailyChallenge.RandomFloat(state) < 0.5 then return false, "elite_evade" end
+    return true, kind
 end
 
-local function ApplyRootShockMark(monster, damage, turns, label)
-    if not monster then return end
-    monster.rootShockDamage = math.max(monster.rootShockDamage or 0, math.max(1, math.floor(damage or 0)))
-    monster.rootShockTurns = math.max(monster.rootShockTurns or 0, turns or 1)
-    monster.rootShockLabel = label or monster.rootShockLabel or "镇魂震荡"
-end
-
-local function TriggerRootShockOnce(state, monster)
-    if not IsMonsterTargetable(monster) then return 0 end
-    if (monster.rootShockTurns or 0) <= 0 or (monster.rootShockDamage or 0) <= 0 then return 0 end
-    if monster.rootShockTriggeredTurn == state.turn then return 0 end
-
-    monster.rootShockTriggeredTurn = state.turn
-    return ApplyDirectMonsterDamage(state, monster, monster.rootShockDamage, monster.rootShockLabel or "镇魂震荡")
-end
-
-local function FindNextSameColumnMonster(state, col, belowRow)
-    local picked = nil
-    local pickedRow = -1
+local function FindFrontTarget(state, col)
+    local chosen, row, targetType = nil, -1, nil
     for _, monster in ipairs(state.monsters) do
-        if IsMonsterTargetable(monster) and monster.col == col and monster.row < belowRow and monster.row > pickedRow then
-            picked = monster
-            pickedRow = monster.row
+        if IsLive(monster) and monster.col == col and monster.row > row then
+            chosen, row, targetType = monster, monster.row, "monster"
         end
     end
-    return picked
+    for _, fieldReward in ipairs(state.fieldRewards or {}) do
+        if (fieldReward.hp or 0) > 0 and fieldReward.col == col and fieldReward.row > row then
+            chosen, row, targetType = fieldReward, fieldReward.row, "fieldReward"
+        end
+    end
+    return chosen, targetType
 end
 
-local function FindMonstersInPattern(state, centerCol, centerRow, pattern)
-    local monsters = {}
-    local function inPattern(col, row)
-        if pattern == "global" then
-            return true
-        elseif pattern == "square_3x3" then
-            return math.abs(col - centerCol) <= 1 and math.abs(row - centerRow) <= 1
-        elseif pattern == "adjacent_col_same_row" then
-            return math.abs(col - centerCol) <= 1 and row == centerRow
-        end
-        return col == centerCol and math.abs(row - centerRow) <= 1
-    end
+local function NearestTargets(state, source, count, predicate, randomize)
+    local targets = {}
     for _, monster in ipairs(state.monsters) do
-        if IsMonsterTargetable(monster) and inPattern(monster.col, monster.row) then
-            table.insert(monsters, monster)
+        if IsLive(monster) and monster ~= source and (not predicate or predicate(monster)) then table.insert(targets, monster) end
+    end
+    if randomize then
+        for index = #targets, 2, -1 do
+            local swapIndex = math.floor(DailyChallenge.RandomFloat(state) * index) + 1
+            targets[index], targets[swapIndex] = targets[swapIndex], targets[index]
         end
+    else
+        table.sort(targets, function(a, b)
+            local da = math.abs(a.col - source.col) + math.abs(a.row - source.row)
+            local db = math.abs(b.col - source.col) + math.abs(b.row - source.row)
+            return da == db and a.row > b.row or da < db
+        end)
     end
-    return monsters
+    while #targets > count do table.remove(targets) end
+    return targets
 end
 
-local function ApplyAreaExtraDamage(state, centerMonster, pattern, amount, label, exclude)
-    local total = 0
-    for _, monster in ipairs(FindMonstersInPattern(state, centerMonster.col, centerMonster.row, pattern)) do
-        if monster ~= exclude then
-            total = total + ApplyDirectMonsterDamage(state, monster, amount, label)
+local function SameRowTargets(state, source)
+    return NearestTargets(state, source, 99, function(monster)
+        return monster.row == source.row
+    end)
+end
+
+local function ApplyBurn(state, item, monster, currentDamage, turnsOverride, source)
+    monster.burnInstances = monster.burnInstances or {}
+    local cap = HasSkill(state, "fire_add_oil") and 10 or 5
+    if #monster.burnInstances >= cap then return false end
+    state.nextBurnInstanceId = (state.nextBurnInstanceId or 0) + 1
+    local turns = turnsOverride or (HasSkill(state, "fire_add_oil") and 4 or 3)
+    table.insert(monster.burnInstances, { id = state.nextBurnInstanceId, sourceWeaponId = item.combatInstanceId, source = source or "chiyan_spear", initialDamage = currentDamage * (item.burnDamagePct or 0.05), currentDamage = currentDamage * (item.burnDamagePct or 0.05), turns = turns, created = state.nextBurnInstanceId })
+    return true
+end
+
+local function CountBurn(monster) return #(monster.burnInstances or {}) end
+
+local function ApplyAttackDown(monster, pct, turns)
+    local oldPct = monster.attackDown or 0
+    local oldTurns = monster.attackDownTurns or 0
+    monster.attackDown = math.max(oldPct, pct)
+    monster.attackDownTurns = math.max(oldTurns, turns)
+    return monster.attackDown > oldPct or monster.attackDownTurns > oldTurns
+end
+
+local function ResolveBaseStatus(state, item, monster, weaponDamage, weaponState, context)
+    local id = item.baseId
+    if id ~= "chiyan_spear" and not IsLive(monster) then return end
+    if id == "chiyan_spear" then
+        local count = 1 + ((DailyChallenge.RandomFloat(state) < (item.extraBurnChance or 0)) and 1 or 0)
+        for _ = 1, count do ApplyBurn(state, item, monster, weaponDamage) end
+        if IsLive(monster) and HasSkill(state, "fire_explosion") and CountBurn(monster) >= 5 and not context.noBurnExplosion then
+            table.sort(monster.burnInstances, function(a, b) return a.turns == b.turns and a.created < b.created or a.turns < b.turns end)
+            for _ = 1, 5 do table.remove(monster.burnInstances, 1) end
+            ExtraDamage(state, item, monster, weaponDamage, "fire_explosion")
         end
-    end
-    return total
-end
-
-local function ApplySameColumnExtraDamage(state, sourceMonster, amount, maxTargets, label)
-    local total = 0
-    local currentRow = sourceMonster.row
-    local limit = maxTargets or 99
-    for _ = 1, limit do
-        local nextMonster = FindNextSameColumnMonster(state, sourceMonster.col, currentRow)
-        if not nextMonster then break end
-        total = total + ApplyDirectMonsterDamage(state, nextMonster, amount, label)
-        currentRow = nextMonster.row
-    end
-    return total
-end
-
-local function ApplyWeaponSpecialEffect(state, item, monster, damage)
-    local effect = item.specialEffect
-    if not effect or damage <= 0 then return 0 end
-
-    local signature = effect.signature or item.signature
-    local tier = effect.tier or item.quality or 5
-    local specialMul = 1 + GetWeaponModifier(state, item, "specialEffectPct")
-    local debuffMul = 1 + GetWeaponModifier(state, item, "debuffPowerPct")
-    local durationBonus = GetWeaponModifier(state, item, "debuffDurationBonus")
-    local rootBonus = GetWeaponModifier(state, item, "rootTurnsBonus")
-    local extraDmg = 0
-
-    local function emitMonsterStatus(target, text, kind)
-        GameEvents.AddMonsterStatus(state, target, text, kind or "debuff")
-    end
-
-    local function tierValue(q5, q6, q7, q8, q9)
-        if tier >= 9 then return q9 end
-        if tier >= 8 then return q8 end
-        if tier >= 7 then return q7 end
-        if tier >= 6 then return q6 end
-        return q5
-    end
-
-    local function effectDuration()
-        return math.max(1, math.floor(tierValue(2, 3, 3, 4, 5) + durationBonus))
-    end
-
-    local function applyDot(target, amount, turns)
-        if not IsMonsterTargetable(target) then return end
-        target.dotDamage = math.max(target.dotDamage or 0, math.max(1, math.floor(amount)))
-        target.dotTurns = math.max(target.dotTurns or 0, turns)
-        emitMonsterStatus(target, "持续伤害", "debuff")
-    end
-
-    local function applyAttackDown(target, value, turns)
-        target.attackDown = math.max(target.attackDown or 0, value)
-        target.attackDownTurns = math.max(target.attackDownTurns or 0, turns)
-        emitMonsterStatus(target, "削攻", "debuff")
-    end
-
-    local function applyCritDown(target, value, turns)
-        target.critChanceDown = math.max(target.critChanceDown or 0, value)
-        target.critChanceDownTurns = math.max(target.critChanceDownTurns or 0, turns)
-        emitMonsterStatus(target, "减暴", "debuff")
-    end
-
-    if signature == "crit" then
-        if item.baseId == "qingfeng_sword" and tier >= 7 and monster.hp <= 0 then
-            local overflow = math.max(0, -monster.hp)
-            if overflow > 0 then
-                local maxTargets = tier >= 9 and 99 or 1
-                extraDmg = extraDmg + ApplySameColumnExtraDamage(state, monster, overflow, maxTargets, "剑心通明")
+    elseif id == "huxin_pearl" then
+        local pct = item.attackDownPct or 0.10
+        local wasDown = (monster.attackDown or 0) > 0
+        local applied = ApplyAttackDown(monster, pct, 2)
+        ExtraDamage(state, item, monster, (monster.baseAtk or 0) * pct, "pearl_attack_down")
+        if HasSkill(state, "pearl_light_shines") then
+            for _, other in ipairs(SameRowTargets(state, monster)) do ApplyAttackDown(other, pct * 0.5, 2) end
+        end
+        if applied and HasSkill(state, "pearl_spirit_platform") and monster.pearlShieldTurn ~= state.turn then
+            monster.pearlShieldTurn = state.turn
+            local gain = math.floor((state.maxHp or 0) * 0.02)
+            local gainedThisTurn = state.pearlShieldGainedTurn == state.turn and (state.pearlShieldGained or 0) or 0
+            local turnCap = math.floor((state.maxHp or 0) * 0.10)
+            gain = math.min(gain, math.max(0, turnCap - gainedThisTurn))
+            state.pearlShieldGainedTurn = state.turn
+            state.pearlShieldGained = gainedThisTurn + gain
+            state.armorShield = (state.armorShield or 0) + gain
+        end
+        if not wasDown then GameEvents.AddMonsterStatus(state, monster, "削攻", "debuff") end
+        if (item.blindChance or 0) > 0 and DailyChallenge.RandomFloat(state) < item.blindChance then
+            local ok = TryHardControl(state, monster, "blind")
+            if ok then
+                monster.blindTurns = math.max(monster.blindTurns or 0, 2)
+                monster.blindWeaponDamage = weaponDamage
+                monster.blindWeaponItem = item
+                monster.pearlBlindness = HasSkill(state, "pearl_blindness")
             end
         end
-    elseif signature == "root" or signature == "root_lock" then
-        local rootTurns = math.min(5, math.floor(tierValue(1, 2, 3, 4, 5) + rootBonus))
-        monster.slowed = 1.0
-        monster.rootTurns = math.max(monster.rootTurns or 0, rootTurns)
-        emitMonsterStatus(monster, "定身", "control")
-
-        if tier >= 7 then
-            local shockRatio = item.baseId == "fuyao_chain" and tierValue(0.30, 0.30, 0.30, 0.40, 0.50) or tierValue(0.20, 0.20, 0.20, 0.30, 0.40)
-            local shockDamage = math.floor(damage * shockRatio * specialMul)
-            if item.baseId == "qingyin_qin" then
-                ApplyRootShockMark(monster, shockDamage, rootTurns, "镇魂震荡")
-                emitMonsterStatus(monster, "镇魂震荡", "control")
+    elseif id == "baigu_staff" then
+        local hpRatio = context.hpRatioBefore or (monster.maxHp > 0 and math.max(0, monster.hp) / monster.maxHp or 0)
+        local base = 0.10 + hpRatio * 0.10 + (item.defenseDownBonus or 0)
+        local sourceKey = item.combatInstanceId or tostring(item)
+        DefenseDown.ApplyWhiteBase(monster, sourceKey, base, 2, true)
+        if HasSkill(state, "staff_erosion_marrow") then
+            if weaponState.lastBoneTarget == monster then
+                weaponState.boneStreak = math.min(4, (weaponState.boneStreak or 0) + 1)
             else
-                applyDot(monster, shockDamage, rootTurns)
+                weaponState.lastBoneTarget, weaponState.boneStreak = monster, 1
             end
+            DefenseDown.ApplyWhiteMarrow(
+                monster,
+                sourceKey,
+                math.min(0.20, (weaponState.boneStreak or 0) * 0.05),
+                2
+            )
         end
-    elseif signature == "defense_down" then
-        local finalValue = tierValue(0.15, 0.20, 0.25, 0.30, 0.45) * debuffMul * specialMul
-        local turns = effectDuration()
-        monster.defenseDown = math.max(monster.defenseDown or 0, finalValue)
-        monster.defenseDownTurns = math.max(monster.defenseDownTurns or 0, turns)
-        emitMonsterStatus(monster, "破甲", "debuff")
-        if item.baseId == "baigu_staff" and tier >= 7 and monster.hp <= monster.maxHp * 0.30 then
-            local soulRatio = tierValue(0.05, 0.05, 0.05, 0.07, 0.10)
-            applyDot(monster, math.floor(monster.maxHp * soulRatio), turns)
-        end
-    elseif signature == "armor_break" then
-        local finalValue = tier >= 9 and 0.25 or (tier >= 8 and 0.20 or (tier >= 7 and 0.15 or 0))
-        if finalValue > 0 then
-            monster.vulnerable = math.max(monster.vulnerable or 0, finalValue * debuffMul * specialMul)
-            monster.vulnerableTurns = math.max(monster.vulnerableTurns or 0, effectDuration())
-            emitMonsterStatus(monster, "易伤", "debuff")
-        end
-    elseif signature == "attack_down" or signature == "attack_down_aura" or signature == "attack_down_area" or signature == "guardian_attack_down" then
-        local finalValue = tierValue(0.15, 0.20, 0.25, 0.30, 0.35) * debuffMul * specialMul
-        local turns = effectDuration()
-
-        local targets = { monster }
-        if tier >= 7 and (item.baseId == "jinguang_ring" or item.baseId == "zhenyao_tower" or item.baseId == "huxin_pearl") then
-            targets = FindMonstersInPattern(state, monster.col, monster.row, "global")
-        end
-        for _, target in ipairs(targets) do
-            applyAttackDown(target, finalValue, turns)
-            if tier >= 7 and (item.baseId == "jinguang_ring" or item.baseId == "huxin_pearl") then
-                applyCritDown(target, tierValue(0.15, 0.15, 0.15, 0.20, 0.25), turns)
-            end
-            if tier >= 7 and (item.baseId == "zhenyao_tower" or item.baseId == "huxin_pearl") then
-                local auraRatio = item.baseId == "zhenyao_tower" and tierValue(0.20, 0.20, 0.20, 0.30, 0.40) or tierValue(0.20, 0.20, 0.20, 0.30, 0.40)
-                applyDot(target, math.floor(damage * auraRatio * specialMul), turns)
-            end
-        end
-    elseif signature == "vulnerability" or signature == "wind_mark" then
-        local finalValue = tierValue(0.10, 0.15, signature == "wind_mark" and 0.15 or 0.20, signature == "wind_mark" and 0.20 or 0.25, signature == "wind_mark" and 0.25 or 0.30)
-        finalValue = finalValue + GetWeaponModifier(state, item, "vulnerableBonusPct")
-        local turns = effectDuration()
-        local targets = { monster }
-        if item.baseId == "lingmo_brush" and tier >= 7 then
-            targets = FindMonstersInPattern(state, monster.col, monster.row, "global")
-        end
-        for _, target in ipairs(targets) do
-            target.vulnerable = math.max(target.vulnerable or 0, finalValue * specialMul)
-            target.vulnerableTurns = math.max(target.vulnerableTurns or 0, turns)
-            emitMonsterStatus(target, signature == "wind_mark" and "风刃易伤" or "易伤", "debuff")
-            if item.baseId == "lingmo_brush" and tier >= 7 then
-                applyDot(target, math.floor(damage * tierValue(0.15, 0.15, 0.15, 0.20, 0.25) * specialMul), turns)
-            end
-        end
-    elseif signature == "burn" or signature == "poison" then
-        local baseDot = signature == "poison" and tierValue(0.15, 0.18, 0.30, 0.40, 0.50) or tierValue(0.15, 0.18, 0.20, 0.25, 0.30)
-        local dotValue = (baseDot + GetWeaponModifier(state, item, "dotDamagePct")) * specialMul
-        local turns = effectDuration()
-        local dotDamage = math.max(1, math.floor(damage * dotValue))
-        applyDot(monster, dotDamage, turns)
-
-        if item.baseId == "chiyan_spear" and tier >= 7 then
-            local pattern = tier >= 9 and "global" or "adjacent_col_same_row"
-            for _, target in ipairs(FindMonstersInPattern(state, monster.col, monster.row, pattern)) do
-                if target ~= monster then
-                    applyDot(target, dotDamage, turns)
-                end
-            end
-        elseif item.baseId == "ziqi_gourd" and tier >= 7 then
-            local explosionRatio = tierValue(0.50, 0.50, 0.50, 0.70, 1.00)
-            local pattern = item.areaPattern or "same_col_adjacent"
-            ApplyPoisonExplosionMark(monster, damage * explosionRatio, pattern, "万毒归宗", turns)
-            emitMonsterStatus(monster, "毒爆标记", "debuff")
-            if monster.hp <= 0 then
-                extraDmg = extraDmg + ApplyAreaExtraDamage(state, monster, pattern, damage * explosionRatio, "万毒归宗", monster)
-                monster.poisonExplosionTriggered = true
-            end
-        end
-    elseif signature == "pull" or signature == "knockback" then
-        local distance = 1 + GetWeaponModifier(state, item, "displaceBonus")
-        if signature == "pull" then
-            monster.row = math.min(Config.FIELD_ROWS, monster.row + distance)
-            emitMonsterStatus(monster, "拉拽", "control")
-            if monster.row >= Config.FIELD_ROWS then
-                monster.charging = true
-                monster.chargeTimer = math.max(monster.chargeTimer or 0, 1)
+        if HasSkill(state, "staff_break_formation") then monster.formationMarkTurns = math.max(monster.formationMarkTurns or 0, 2) end
+    elseif id == "qingyin_qin" then
+        if (monster.qinImmuneTurns or 0) > 0 then
+            if HasSkill(state, "qin_silent_wins") then
+                ExtraDamage(state, item, monster, weaponDamage * 0.50, "qin_silent_wins")
             end
         else
-            monster.row = math.max(1, monster.row - distance)
-            emitMonsterStatus(monster, "击退", "control")
-            if monster.row < Config.FIELD_ROWS then
-                monster.charging = false
-                monster.chargeTimer = 0
+            local chance = (item.rootChance or 0.20) + (monster.qinChanceBonus or 0)
+            local success = DailyChallenge.RandomFloat(state) < chance
+            local ok = success and TryHardControl(state, monster, "root") or false
+            if ok then
+                monster.rootTurns = math.max(monster.rootTurns or 0, 1)
+                monster.qinImmuneTurns = math.max(monster.qinImmuneTurns or 0, (item.rootCooldown or 4) + 1)
+                monster.qinChanceBonus = 0
+                if HasSkill(state, "qin_broken_string") then
+                    ExtraDamage(state, item, monster, weaponDamage * 0.80, "qin_broken_string")
+                    monster.qinImmuneTurns = monster.qinImmuneTurns + 1
+                end
+            else
+                if HasSkill(state, "qin_gradual_melody") then monster.qinChanceBonus = math.min(0.30, (monster.qinChanceBonus or 0) + 0.10) end
             end
         end
-        if item.baseId == "taiji_sword" and (item.quality or 0) >= 7 then
-            monster.slowed = 1.0
-            monster.rootTurns = math.max(monster.rootTurns or 0, item.quality >= 9 and 2 or 1)
-        elseif item.baseId == "double_blade_chain" and (item.quality or 0) >= 6 then
-            applyDot(monster, math.floor(damage * tierValue(0.15, 0.15, 0.25, 0.35, 0.45) * specialMul), effectDuration())
+    elseif id == "jinguang_ring" and not context.noKnockback then
+        local chance = (item.knockbackChance or 0.10) + (HasSkill(state, "ring_endless_turn") and 0.15 or 0) + (weaponState.ringMomentum or 0)
+        if not IsBoss(monster) and DailyChallenge.RandomFloat(state) < chance then
+            if IsElite(monster) and DailyChallenge.RandomFloat(state) < 0.5 then
+                if HasSkill(state, "ring_store_might") then weaponState.ringMomentum = math.max(0, (weaponState.ringMomentum or 0) - 0.10) end
+            else
+                weaponState.ringMomentum = 0
+                local shakeMountainApplies = HasSkill(state, "ring_shake_mountain")
+                    and monster.tier == Config.MONSTER_TIER.NORMAL
+                local distance = shakeMountainApplies and 2 or 1
+                local moved = 0
+                for _ = 1, distance do
+                    local blocked = false
+                    for _, other in ipairs(state.monsters) do if other ~= monster and IsLive(other) and other.col == monster.col and other.row == monster.row - 1 then blocked = other break end end
+                    if blocked then
+                        if (item.collisionDamagePct or 0) > 0 then ExtraDamage(state, item, blocked, weaponDamage * item.collisionDamagePct, "ring_collision") end
+                        break
+                    end
+                    if monster.row <= 1 then break end
+                    monster.row = monster.row - 1; moved = moved + 1
+                end
+                if shakeMountainApplies and moved > 0 then ExtraDamage(state, item, monster, weaponDamage * 0.30 * moved, "ring_shake_mountain") end
+                if HasSkill(state, "ring_return_light") and not context.noReturnLight and IsLive(monster) then
+                    ResolveSingleAttack(state, item, context.slotIdx, monster, {
+                        isExtraAttack = true,
+                        noKnockback = true,
+                        noReturnLight = true,
+                        damageRatio = 0.50,
+                        skillId = "ring_return_light",
+                        visualVariant = "extra_attack",
+                        effectScale = 0.8,
+                    })
+                end
+            end
+        elseif not IsBoss(monster) and HasSkill(state, "ring_store_might") then
+            weaponState.ringMomentum = math.min(0.30, (weaponState.ringMomentum or 0) + 0.10)
         end
     end
-
-    return extraDmg
 end
 
-local function ResolveMonsterHit(state, item, targetInfo, damage, didCrit)
-    local monster = targetInfo.target
-    local finalDmg = ApplyMonsterDamageModifiers(state, item, monster, damage)
-    local hpDmg, shieldAbsorbed = ApplyMonsterShield(monster, finalDmg)
-    monster.hp = monster.hp - hpDmg
-    local hadRootShock = (monster.rootShockTurns or 0) > 0 and (monster.rootShockDamage or 0) > 0
-    local specialDmg = ApplyWeaponSpecialEffect(state, item, monster, hpDmg)
-    if hadRootShock then
-        specialDmg = specialDmg + TriggerRootShockOnce(state, monster)
-    end
-    ApplySurvivalSkill(monster)
+ResolveSingleAttack = function(state, item, slotIdx, monster, context)
+    if not IsLive(monster) or (state.hp or 0) <= 0 then return false end
+    context = context or {}
+    context.slotIdx = slotIdx
+    local realm = Config.GetRealm(state.realmIndex)
+    local weaponState = WeaponState(state, item)
+    local weaponDamage = CurrentWeaponDamage(state, item, realm)
+    local id = item.baseId
+    local hpBefore = math.max(0, monster.hp)
+    local maxHp = math.max(1, monster.maxHp or 1)
+    local hpRatioBefore = hpBefore / maxHp
+    context.hpRatioBefore = hpRatioBefore
+    local hadAttackDownBefore = (monster.attackDown or 0) > 0 and (monster.attackDownTurns or 0) > 0
+    local hadDefenseDownBefore = (monster.defenseDown or 0) > 0 and (monster.defenseDownTurns or 0) > 0
+    local wasRootedBefore = (monster.rootTurns or 0) > 0
 
-    if specialDmg > 0 then
-        print(string.format("  [Special] %s 追加造成%d伤害", item.name or "法宝", specialDmg))
-    end
-
-    if shieldAbsorbed > 0 then
-        print(string.format("  [Skill] %s 护盾吸收%d", monster.name, shieldAbsorbed))
-    end
-
-    if hpDmg > 0 then
-        local event = {
-            col = targetInfo.col,
-            row = targetInfo.row,
-            dmg = hpDmg,
-            target = monster,
-            crit = didCrit == true,
-        }
-        table.insert(state.lastDamageDealt, event)
-        VisualEventQueue.PushDamageDealt(state, event)
-    end
-end
-
-local function ResolveFieldRewardHit(state, targetInfo)
-    FieldRewardService.ResolveFieldRewardHit(state, targetInfo.target)
-end
-
-local function IsSlotSealed(state, slotIdx)
-    local sealed = state.sealedSlots and state.sealedSlots[slotIdx]
-    return sealed and sealed > 0
-end
-
-local function ResolveAttackItemOnce(state, item, slotIdx, col, realm, silenced)
-    if silenced or IsSlotSealed(state, slotIdx) then
-        table.insert(state.lastAttackEvents, {
-            slotIdx = slotIdx,
-            col = col,
-            targetType = "none",
-            targetRow = 0,
-            attackMode = silenced and "silenced" or "sealed",
-        })
-        return
+    if id == "lingmo_brush" then
+        local hpRatio = (state.maxHp or 1) > 0 and (state.hp or 0) / state.maxHp or 1
+        if hpRatio <= 0.30 then
+            local bonus = item.lowPlayerDamagePct or 0.20
+            bonus = bonus + math.floor(math.max(0, 0.30 - hpRatio) / 0.05 + 0.000001) * (item.lowPlayerLayerPct or 0)
+            if HasSkill(state, "brush_grind_ink") then bonus = bonus * 1.15 end
+            weaponDamage = math.floor(weaponDamage * (1 + bonus))
+        end
+        if HasSkill(state, "brush_judgement") and monster.hp < math.max(0, (state.maxHp or 0) - (state.hp or 0)) then
+            monster.hp = 0
+            monster.lastDamageWeaponId = item.baseId
+            monster.lastDamageSkillId = "brush_judgement"
+            AddAttackEvent(state, item, slotIdx, monster, false, { skillId = "brush_judgement", visualVariant = "skill", effectScale = 1.3 })
+            print("  [Weapon Skill] 审判直接斩杀")
+            return true, false
+        end
+    elseif id == "huxin_pearl" and HasSkill(state, "pearl_heart_shock") and hadAttackDownBefore then
+        weaponDamage = math.floor(weaponDamage * 1.25)
+    elseif id == "baigu_staff" then
+        if hadDefenseDownBefore then weaponDamage = math.floor(weaponDamage * (1 + (item.defenseDownDamagePct or 0))) end
+        if HasSkill(state, "staff_bone_erosion") then weaponDamage = math.floor(weaponDamage * (1 + math.min(0.25, math.floor((monster.defenseDown or 0) / 0.10 + 0.000001) * 0.05))) end
+    elseif id == "pozhen_spear" then
+        if IsElite(monster) or IsBoss(monster) then if HasSkill(state, "spear_braver_against_sturdy") then weaponDamage = math.floor(weaponDamage * 1.25) end end
+        if (monster.formationMarkTurns or 0) > 0 and HasSkill(state, "staff_break_formation") then
+            weaponDamage = math.floor(weaponDamage * 1.30)
+            local attackTracker = context.attackTracker or context
+            if not attackTracker.formationExtensionUsed and DefenseDown.ExtendWhiteBone(monster, 1) then
+                attackTracker.formationExtensionUsed = true
+            end
+        end
+    elseif id == "chiyan_spear" and HasSkill(state, "fire_burn_body") then
+        weaponDamage = math.floor(weaponDamage * (1 + math.min(0.30, CountBurn(monster) * 0.02)))
     end
 
-    local baseDmg, didCrit = CalculateBaseDamage(state, item, realm, slotIdx)
-    local targets = CollectAttackTargets(state, item, col)
+    local didCrit, critMultiplier = CritData(state, item, weaponState, context)
+    local raw = weaponDamage * (context.damageRatio or 1)
+    local virtualCritDamage = raw * critMultiplier
+    if id == "bishui_sword" then
+        if HasSkill(state, "bishui_urge_wave") then
+            critMultiplier = (item.quality or 1) <= 2
+                and (0.90 + DailyChallenge.RandomFloat(state) * 0.60)
+                or (1.00 + DailyChallenge.RandomFloat(state) * 0.60)
+            virtualCritDamage = raw * critMultiplier
+        end
+        if HasSkill(state, "bishui_cut_current") then
+            didCrit = false
+            raw = raw + virtualCritDamage * 0.10
+        else
+            didCrit = true
+            raw = virtualCritDamage
+        end
+    elseif didCrit then raw = raw * critMultiplier end
+    if id == "fuyao_chain" and didCrit then raw = raw * (1 + (weaponState.chainCritBonus or 0)) end
+    if id == "ziqi_gourd" and context.canDoubleDamage then raw = raw * 2 end
+    raw = math.max(1, math.floor(raw + 0.5))
+    AddAttackEvent(state, item, slotIdx, monster, didCrit, context)
+    local _, overflow = DamageMonster(state, item, monster, raw, {
+        skillId = context.skillId,
+        visualVariant = context.isExtraAttack and "extra_attack" or "main",
+        shieldMultiplier = id == "pozhen_spear" and HasSkill(state, "spear_break_wall") and 2 or 1,
+    })
 
-    if #targets == 0 then
-        table.insert(state.lastAttackEvents, {
-            slotIdx = slotIdx,
-            col = col,
-            targetType = "none",
-            targetRow = 0,
-            attackMode = item.attackMode or "single",
-        })
-        return
+    if id == "qingfeng_sword" and hpRatioBefore > math.max(0, (item.highHpThreshold or 0.80) - (HasSkill(state, "qingfeng_huali") and 0.15 or 0)) then
+        ExtraDamage(state, item, monster, weaponDamage * (item.highHpBonusPct or 0.20) * (HasSkill(state, "sword_edge_exposed") and 1.20 or 1), "qingfeng_high_hp")
     end
-
-    for _, targetInfo in ipairs(targets) do
-        local damage = math.max(1, math.floor(baseDmg * (targetInfo.multiplier or 1.0)))
-        table.insert(state.lastAttackEvents, {
-            slotIdx = slotIdx,
-            col = col,
-            targetType = targetInfo.targetType,
-            targetCol = targetInfo.col,
-            targetRow = targetInfo.row,
-            target = targetInfo.target,
-            attackMode = item.attackMode or "single",
-            baseId = item.baseId,
-            school = item.school,
-            signature = item.signature,
-            quality = item.quality,
-            crit = didCrit == true,
-        })
-
-        if targetInfo.targetType == "monster" then
-            ResolveMonsterHit(state, item, targetInfo, damage, didCrit)
-        elseif targetInfo.targetType == "fieldReward" then
-            ResolveFieldRewardHit(state, targetInfo)
+    if id == "taiji_sword" and hpRatioBefore < (item.lowHpThreshold or 0.20) then
+        ExtraDamage(state, item, monster, weaponDamage * (item.lowHpBonusPct or 0.15) * (HasSkill(state, "sword_edge_exposed") and 1.20 or 1), "taiji_low_hp")
+    end
+    if HasSkill(state, "taqing_sword_art") then
+        local thresholdBonusMultiplier = HasSkill(state, "sword_edge_exposed") and 1.20 or 1
+        if id == "qingfeng_sword" and not state.runWeapons.taiji_sword and hpRatioBefore < 0.20 then
+            ExtraDamage(state, item, monster, weaponDamage * 0.15 * thresholdBonusMultiplier, "taqing_sword_art")
+        end
+        if id == "taiji_sword" and not state.runWeapons.qingfeng_sword and hpRatioBefore > 0.80 then
+            ExtraDamage(state, item, monster, weaponDamage * 0.20 * thresholdBonusMultiplier, "taqing_sword_art")
         end
     end
+    if id == "qingfeng_sword" and HasSkill(state, "qingfeng_sharp") and DailyChallenge.RandomFloat(state) < 0.10 then ExtraDamage(state, item, monster, weaponDamage * 0.50, "qingfeng_sharp") end
+    if id == "bishui_sword" then
+        if (item.maxHpDamagePct or 0) > 0 and not context.noMaxHpDamage then ExtraDamage(state, item, monster, math.min(monster.maxHp * item.maxHpDamagePct, weaponDamage * 0.70), "bishui_max_hp") end
+        if HasSkill(state, "bishui_water_force") then ExtraDamage(state, item, monster, virtualCritDamage * 0.20, "bishui_water_force") end
+        if HasSkill(state, "bishui_river_stir") and overflow > 0 and not context.noOverflow then
+            local others = NearestTargets(state, monster, 1, nil, true)
+            if others[1] then ExtraDamage(state, item, others[1], overflow, "bishui_river_stir") end
+        end
+    elseif id == "pozhen_spear" and (item.baseDefenseDamagePct or 0) > 0 then
+        local pct = item.baseDefenseDamagePct * (HasSkill(state, "spear_borrow_armor") and 1.30 or 1)
+        ExtraDamage(state, item, monster, (monster.baseDefense or 0) * pct, "pozhen_base_defense")
+    elseif id == "qingyin_qin" and HasSkill(state, "qin_lingering_sound") and wasRootedBefore and monster.qinLingeringTurn ~= state.turn then
+        monster.qinLingeringTurn = state.turn
+        ExtraDamage(state, item, monster, weaponDamage * 0.25, "qin_lingering_sound")
+    elseif id == "lingmo_brush" and HasSkill(state, "brush_bloom") and DailyChallenge.RandomFloat(state) < 0.20 then
+        ExtraDamage(state, item, monster, math.max(0, (state.maxHp or 0) - (state.hp or 0)), "brush_bloom")
+    end
+
+    ResolveBaseStatus(state, item, monster, weaponDamage, weaponState, context)
+    if id == "fuyao_chain" then
+        if didCrit then
+            weaponState.chainMomentum = 0
+            weaponState.chainCritBonus = math.min(1.50, (weaponState.chainCritBonus or 0) + (item.chainCritStep or 0))
+            if HasSkill(state, "chain_fury") and DailyChallenge.RandomFloat(state) < 0.05 then ExtraDamage(state, item, monster, weaponDamage * 3, "chain_fury") end
+        else
+            weaponState.chainMomentum = HasSkill(state, "chain_momentum") and math.min(0.45, (weaponState.chainMomentum or 0) + 0.15) or 0
+            weaponState.chainCritBonus = HasSkill(state, "chain_turn_tide") and math.max(0, (weaponState.chainCritBonus or 0) - 0.20) or 0
+        end
+    end
+    return monster.hp <= 0, didCrit
+end
+
+local function ResolveFan(state, item, slotIdx, primary)
+    local damage = CurrentWeaponDamage(state, item, Config.GetRealm(state.realmIndex))
+    if HasSkill(state, "fan_wind_aids_fire") then
+        for _, burn in ipairs(primary.burnInstances or {}) do if not burn.windAided then burn.currentDamage = burn.currentDamage * 1.20; burn.windAided = true end end
+    end
+    ResolveSingleAttack(state, item, slotIdx, primary, {})
+    local splashes = NearestTargets(state, primary, item.splashCount or 1)
+    if #splashes == 0 and HasSkill(state, "fan_if_wind") then ExtraDamage(state, item, primary, math.min(damage * 1.50, damage * (item.splashRatio or 0.20) * (item.splashCount or 1)), "fan_if_wind") end
+    for _, target in ipairs(splashes) do
+        local raw = damage * (item.splashRatio or 0.20)
+        if HasSkill(state, "fan_wind_wrath") and DailyChallenge.RandomFloat(state) < 0.20 then raw = raw * 2 end
+        local crit, mult = CritData(state, item, WeaponState(state, item), { critChanceBonus = HasSkill(state, "fan_wind_sough") and 0.20 or 0 })
+        if not HasSkill(state, "fan_wind_sough") then crit = false end
+        AddAttackEvent(state, item, slotIdx, target, crit, { skillId = "fan_splash", visualVariant = "splash" })
+        DamageMonster(state, item, target, raw * (crit and mult or 1), { skillId = "fan_splash", visualVariant = "splash" })
+    end
+end
+
+local function ResolveTower(state, item, slotIdx, primary)
+    ResolveSingleAttack(state, item, slotIdx, primary, {})
+    local weaponDamage = CurrentWeaponDamage(state, item, Config.GetRealm(state.realmIndex))
+    local casts = 1 + ((DailyChallenge.RandomFloat(state) < (item.doubleCastChance or 0)) and 1 or 0)
+    for _ = 1, casts do
+        local targets = {}; for _, monster in ipairs(state.monsters) do if IsLive(monster) then table.insert(targets, monster) end end
+        local mul = 1 + math.min(0.50, #targets * 0.10) * (HasSkill(state, "tower_demon_might") and 1 or 0)
+        local crit, mult = false, 1
+        if HasSkill(state, "tower_nine_heavens") then crit = DailyChallenge.RandomFloat(state) < (item.crit or 0) * 0.50; mult = 1.50 end
+        for _, target in ipairs(targets) do
+            AddAttackEvent(state, item, slotIdx, target, crit, { skillId = "tower_global", visualVariant = "global" })
+            local before = target.hp
+            DamageMonster(state, item, target, weaponDamage * ((item.globalDamagePct or 0.025) + (state.towerRefineBonusPct or 0)) * mul * (crit and mult or 1), { skillId = "tower_global", visualVariant = "global" })
+            if HasSkill(state, "tower_refine") and before > 0 and target.hp <= 0 then state.towerRefineBonusPct = math.min(0.05, (state.towerRefineBonusPct or 0) + 0.0025) end
+            if HasSkill(state, "tower_seal") and target.hp > 0 then target.towerSealHits = (target.towerSealHits or 0) + 1; if target.towerSealHits >= 5 then target.towerSealHits = target.towerSealHits - 5; ExtraDamage(state, item, target, weaponDamage * 0.60, "tower_seal") end end
+        end
+    end
+end
+
+local function ResolveGourd(state, item, slotIdx, target)
+    local ws, damage = WeaponState(state, item), CurrentWeaponDamage(state, item, Config.GetRealm(state.realmIndex))
+    local chance = (item.healChance or 0.08) + (HasSkill(state, "gourd_purple_fills") and (ws.gourdPity or 0) or 0)
+    local healTriggered = DailyChallenge.RandomFloat(state) < chance
+    local double = healTriggered and DailyChallenge.RandomFloat(state) < (item.doubleDamageChance or 0)
+    ResolveSingleAttack(state, item, slotIdx, target, { canDoubleDamage = double })
+    if healTriggered then
+        ws.gourdPity = 0
+        local lowHpAtTrigger = (state.hp or 0) <= (state.maxHp or 0) * 0.5
+        local heal = math.max(1, damage * (HasSkill(state, "gourd_heal_world") and 0.03 or 0.01))
+        if HasSkill(state, "gourd_medicine_poison") and lowHpAtTrigger then heal = heal * 2 end
+        local actual = Stats.Heal(state, heal)
+        if HasSkill(state, "gourd_purple_guard") then state.armorShield = math.min((state.armorShield or 0) + math.max(0, heal - actual), math.floor((state.maxHp or 0) * 0.15)) end
+        if HasSkill(state, "gourd_medicine_poison") and not lowHpAtTrigger then ExtraDamage(state, item, target, damage * 0.50, "gourd_medicine_poison") end
+    elseif HasSkill(state, "gourd_purple_fills") then ws.gourdPity = math.min(0.10, (ws.gourdPity or 0) + 0.02) end
+end
+
+local function ResolveDoubleChain(state, item, slotIdx, target)
+    local count = 2 + ((DailyChallenge.RandomFloat(state) < ((item.tripleChance or 0) + (HasSkill(state, "double_chain_three_rings") and 0.10 or 0))) and 1 or 0)
+    local priorCrit, current = false, target
+    local firstSegmentLeftTargetAlive = false
+    for segment = 1, count do
+        if not IsLive(current) then
+            if HasSkill(state, "double_chain_soul_chase") then
+                local nexts = NearestTargets(state, current or target, 1)
+                current = nexts[1]
+            else
+                break
+            end
+            if not current then break end
+        end
+        local force, mult = nil, nil
+        if segment == 2 and priorCrit and HasSkill(state, "double_chain_twins") then
+            force = true
+            local _, normal = CritData(state, item, WeaponState(state, item), {})
+            mult = 1 + (normal - 1) * 0.80
+        end
+        local damageRatio = item.segmentDamagePct or 0.45
+        if segment == 2 and firstSegmentLeftTargetAlive and HasSkill(state, "double_chain_follow_win") then damageRatio = damageRatio * 1.25 end
+        local _, didCrit = ResolveSingleAttack(state, item, slotIdx, current, {
+            damageRatio = damageRatio,
+            forceCrit = force,
+            multiplier = mult,
+            skillId = "double_chain_segment",
+            visualVariant = "segment",
+        })
+        if segment == 1 then
+            priorCrit = didCrit
+            firstSegmentLeftTargetAlive = IsLive(current)
+        end
+    end
+end
+
+local function ResolveFieldRewardAttack(state, item, slotIdx, fieldReward)
+    if not fieldReward or (fieldReward.hp or 0) <= 0 then return false end
+    local didCrit = CritData(state, item, WeaponState(state, item), {})
+    AddAttackEvent(state, item, slotIdx, fieldReward, didCrit, {
+        targetType = "fieldReward",
+        visualVariant = "reward",
+    })
+    FieldRewardService.ResolveFieldRewardHit(state, fieldReward)
+    print(string.format("  [FieldReward] %s击碎第%d列奖励：%s", item.name, fieldReward.col or 0, fieldReward.rewardItem and fieldReward.rewardItem.name or "随机道具"))
+    return true
 end
 
 local function ResolveAttackItem(state, item, slotIdx, col, realm, silenced)
-    ResolveAttackItemOnce(state, item, slotIdx, col, realm, silenced)
-    if silenced then return end
-
-    local extraChance = GetExtraAttackChance(state, item)
-    if extraChance > 0 and DailyChallenge.RandomFloat(state) < extraChance then
-        print(string.format("  [Attack] %s 触发追加出手", item.name))
-        ResolveAttackItemOnce(state, item, slotIdx, col, realm, false)
+    if silenced or (state.sealedSlots and (state.sealedSlots[slotIdx] or 0) > 0) then return end
+    local target, targetType = FindFrontTarget(state, col)
+    if not target then return end
+    if targetType == "fieldReward" then
+        ResolveFieldRewardAttack(state, item, slotIdx, target)
+        return
     end
-end
-
-local function ResolveDefenseItem(state, item, col, realm)
-    local slowRate = (item.slowRate or 0) * realm.defMul
-    if slowRate <= 0 then return end
-
-    for _, monster in ipairs(state.monsters) do
-        if IsMonsterTargetable(monster) and monster.col == col then
-            monster.slowed = math.min(1.0, slowRate)
-        end
+    if item.baseId == "zhenyao_tower" then ResolveTower(state, item, slotIdx, target)
+    elseif item.baseId == "qingyu_fan" then ResolveFan(state, item, slotIdx, target)
+    elseif item.baseId == "ziqi_gourd" then ResolveGourd(state, item, slotIdx, target)
+    elseif item.baseId == "double_blade_chain" then ResolveDoubleChain(state, item, slotIdx, target)
+    else ResolveSingleAttack(state, item, slotIdx, target, {}) end
+    if item.baseId == "taiji_sword" and HasSkill(state, "taiji_yinyang") and IsLive(target) and DailyChallenge.RandomFloat(state) < 0.20 then ResolveSingleAttack(state, item, slotIdx, target, { isExtraAttack = true, damageRatio = 0.50, skillId = "taiji_yinyang" }) end
+    if item.baseId == "taiji_sword" and HasSkill(state, "taiji_enlightenment") and IsLive(target) and target.hp < target.maxHp * 0.10 then
+        target.hp = 0
+        target.lastDamageWeaponId = item.baseId
+        target.lastDamageSkillId = "taiji_enlightenment"
+        print("  [Weapon Skill] 悟道斩杀")
     end
 end
 
 function PlayerItemResolver.Resolve(state)
     local realm = Config.GetRealm(state.realmIndex)
     local silenced = (state.itemSilenceTurns or 0) > 0
-
-    if silenced then
-        print(string.format("  [Skill] 灾厄脉冲压制法宝攻击，剩余%d回合", state.itemSilenceTurns))
-    end
-
     for slotIdx = 1, Config.TOTAL_SLOTS do
         local item = state.slots[slotIdx]
-        if item then
-            local col = ((slotIdx - 1) % Config.GRID_COLS) + 1
-
-            if item.itemType == Config.ITEM_TYPE.ATTACK then
-                ResolveAttackItem(state, item, slotIdx, col, realm, silenced)
-            elseif item.itemType == Config.ITEM_TYPE.DEFENSE then
-                ResolveDefenseItem(state, item, col, realm)
-            end
+        if item and item.itemType == Config.ITEM_TYPE.ATTACK then
+            ResolveAttackItem(state, item, slotIdx, ((slotIdx - 1) % Config.GRID_COLS) + 1, realm, silenced)
+            KillResolver.Resolve(state)
         end
     end
-
-    if silenced then
-        state.itemSilenceTurns = math.max(0, (state.itemSilenceTurns or 0) - 1)
-    end
+    if silenced then state.itemSilenceTurns = math.max(0, state.itemSilenceTurns - 1) end
 end
 
 return PlayerItemResolver

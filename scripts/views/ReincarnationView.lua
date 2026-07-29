@@ -128,14 +128,20 @@ function ReincarnationView.Create(onUpgrade)
                         backgroundColor = COLORS.border,
                     },
                     self.pointsLabel,
-                    UI.ScrollView {
+                    UI.Panel {
                         width = "100%",
                         flexGrow = 1,
                         flexBasis = 0,
-                        scrollY = true,
-                        scrollX = false,
-                        showScrollbar = true,
-                        children = { self.cardsPanel },
+                        children = {
+                            UI.ScrollView {
+                                width = "100%",
+                                height = "100%",
+                                scrollY = true,
+                                scrollX = false,
+                                showScrollbar = true,
+                                children = { self.cardsPanel },
+                            },
+                        },
                     },
                 },
             },

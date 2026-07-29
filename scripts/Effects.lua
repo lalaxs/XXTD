@@ -234,6 +234,9 @@ function Effects.TriggerAttack(state)
                 attackMode = ev.attackMode,
                 signature = ev.signature,
                 quality = ev.quality,
+                visualVariant = ev.visualVariant,
+                skillId = ev.skillId,
+                effectScale = ev.effectScale or 1,
                 crit = ev.crit == true,
                 startTime = effectTime_,
                 duration = duration,
@@ -800,6 +803,11 @@ local function DrawPlayerProjectile(sx, sy, ex, ey, progress, eff, thickness)
     if eff.crit then
         thickness = thickness * 1.18
     end
+    if eff.visualVariant == "extra_attack" or eff.visualVariant == "segment" then
+        thickness = thickness * 0.88
+    elseif eff.visualVariant == "global" or eff.visualVariant == "skill" then
+        thickness = thickness * math.max(1.18, eff.effectScale or 1)
+    end
 
     if style.shape == "blade" then
         DrawBladeProjectile(sx, sy, ex, ey, progress, style, thickness)
@@ -1093,6 +1101,7 @@ local function DrawHitHoldEffect(cx, cy, cellW, cellH, progress, style, crit)
     local fade = 1.0 - t
     local alpha = ClampAlpha(195 * fade)
     local radius = baseSize * (0.12 + 0.22 * t + 0.04 * pulse)
+    if style and style.visualVariant == "global" then radius = radius * 1.45 end
 
     DrawFlatCircle(cx, cy, radius, nil, 0, outline, math.max(2.0, baseSize * 0.028), alpha * 0.65)
     DrawFlatCircle(cx, cy, radius * 0.82, nil, 0, color, math.max(1.5, baseSize * 0.020), alpha)
@@ -1162,7 +1171,7 @@ local function DrawAttackWaveEffects()
                         DrawPlayerProjectile(sx, sy, ex, ey, flightProgress, eff, thickness)
                     end
                     if hitProgress > 0 then
-                        DrawHitHoldEffect(ex, ey, targetW, targetH, hitProgress, style, eff.crit)
+                        DrawHitHoldEffect(ex, ey, targetW, targetH, hitProgress, { primary = style.primary, secondary = style.secondary, outline = style.outline, visualVariant = eff.visualVariant }, eff.crit)
                     end
                 end
             end

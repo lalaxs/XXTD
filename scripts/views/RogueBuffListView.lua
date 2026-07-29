@@ -2,6 +2,7 @@
 -- 本次轮回已获得的机缘增益列表。
 
 local UI = require("urhox-libs/UI")
+local RogueRewardDefs = require("config.RogueRewardDefs")
 
 local RogueBuffListView = {}
 RogueBuffListView.__index = RogueBuffListView
@@ -93,9 +94,37 @@ local function CreateCategoryBadge(text, color)
     }
 end
 
+local function BuildOwnedRewards(state)
+    local owned = {}
+    local levels = state and state.selectedRogueRewards or {}
+    local latestRealmById = {}
+
+    for _, history in ipairs(state and state.rogueRewardHistory or {}) do
+        latestRealmById[history.id] = history.realmName
+    end
+
+    for _, def in ipairs(RogueRewardDefs) do
+        local level = tonumber(levels[def.id]) or 0
+        if level > 0 then
+            table.insert(owned, {
+                id = def.id,
+                name = def.name,
+                abilityName = def.abilityName or def.shortName or def.name,
+                abilityDesc = def.cardDesc or def.abilityDesc or def.desc,
+                category = def.category or "机缘",
+                level = level,
+                maxStacks = def.maxStacks or 1,
+                realmName = latestRealmById[def.id],
+            })
+        end
+    end
+
+    return owned
+end
+
 local function CreateRewardRow(reward, index)
     local color = CATEGORY_COLOR[reward.category] or COLORS.gold
-    local realmName = reward.realmName or "未知境界"
+    local realmName = reward.realmName
 
     return UI.Panel {
         width = "100%",
@@ -131,7 +160,9 @@ local function CreateRewardRow(reward, index)
                                 maxLines = 2,
                             },
                             UI.Label {
-                                text = string.format("获得境界：%s · 层级 %d/%d", realmName, reward.level or 1, reward.maxStacks or 1),
+                                text = realmName
+                                    and string.format("最近获得：%s · 层级 %d/%d", realmName, reward.level or 1, reward.maxStacks or 1)
+                                    or string.format("当前层级：%d/%d", reward.level or 1, reward.maxStacks or 1),
                                 width = "100%",
                                 fontSize = 12,
                                 fontColor = COLORS.muted,
@@ -163,6 +194,7 @@ end
 function RogueBuffListView.Create()
     local self = setmetatable({
         root = nil,
+        panel = nil,
         titleLabel = nil,
         subtitleLabel = nil,
         countLabel = nil,
@@ -195,14 +227,98 @@ function RogueBuffListView.Create()
         gap = 10,
         paddingRight = 4,
     }
-    self.scrollView = UI.ScrollView {
+    self.scrollView = UI.Panel {
         width = "100%",
         flexGrow = 1,
         flexBasis = 0,
-        scrollY = true,
-        scrollX = false,
-        showScrollbar = true,
-        children = { self.listPanel },
+        children = {
+            UI.ScrollView {
+                width = "100%",
+                height = "100%",
+                scrollY = true,
+                scrollX = false,
+                showScrollbar = true,
+                children = { self.listPanel },
+            },
+        },
+    }
+
+    self.panel = UI.Panel {
+        width = "92%",
+        maxWidth = 620,
+        height = "78%",
+        padding = 16,
+        gap = 10,
+        backgroundColor = COLORS.panel,
+        borderRadius = 20,
+        borderWidth = 3,
+        borderColor = COLORS.borderDark,
+        boxShadow = SoftShadow(),
+        transition = "opacity 0.22s easeOutCubic, scale 0.22s easeOutCubic",
+        children = {
+            UI.Panel {
+                width = "100%",
+                flexDirection = "row",
+                justifyContent = "space-between",
+                alignItems = "center",
+                children = {
+                    CreateSeal("技", COLORS.red, 42, 22),
+                    self.titleLabel,
+                    UI.Button {
+                        text = "×",
+                        width = 42,
+                        height = 38,
+                        fontSize = 22,
+                        borderRadius = 10,
+                        borderWidth = 2,
+                        borderColor = COLORS.borderDark,
+                        backgroundColor = {92, 63, 36, 255},
+                        textColor = {235, 218, 185, 255},
+                        onClick = function()
+                            self:Hide()
+                        end,
+                    },
+                },
+            },
+            UI.Panel {
+                width = "100%",
+                height = 2,
+                borderRadius = 1,
+                backgroundColor = COLORS.border,
+            },
+            UI.Panel {
+                width = "100%",
+                flexDirection = "row",
+                justifyContent = "space-between",
+                alignItems = "center",
+                gap = 10,
+                children = {
+                    UI.Panel {
+                        flexGrow = 1,
+                        flexShrink = 1,
+                        paddingHorizontal = 10,
+                        paddingVertical = 7,
+                        backgroundColor = COLORS.panelInner,
+                        borderRadius = 12,
+                        borderWidth = 2,
+                        borderColor = COLORS.border,
+                        children = { self.subtitleLabel },
+                    },
+                    UI.Panel {
+                        width = 78,
+                        height = 38,
+                        borderRadius = 12,
+                        borderWidth = 2,
+                        borderColor = COLORS.border,
+                        backgroundColor = COLORS.cardDark,
+                        alignItems = "center",
+                        justifyContent = "center",
+                        children = { self.countLabel },
+                    },
+                },
+            },
+            self.scrollView,
+        },
     }
 
     self.root = UI.Panel {
@@ -217,84 +333,7 @@ function RogueBuffListView.Create()
         justifyContent = "center",
         alignItems = "center",
         paddingHorizontal = 12,
-        children = {
-            UI.Panel {
-                width = "92%",
-                maxWidth = 620,
-                height = "78%",
-                padding = 16,
-                gap = 10,
-                backgroundColor = COLORS.panel,
-                borderRadius = 20,
-                borderWidth = 3,
-                borderColor = COLORS.borderDark,
-                boxShadow = SoftShadow(),
-                children = {
-                    UI.Panel {
-                        width = "100%",
-                        flexDirection = "row",
-                        justifyContent = "space-between",
-                        alignItems = "center",
-                        children = {
-                            CreateSeal("益", COLORS.red, 42, 22),
-                            self.titleLabel,
-                            UI.Button {
-                                text = "×",
-                                width = 42,
-                                height = 38,
-                                fontSize = 22,
-                                borderRadius = 10,
-                                borderWidth = 2,
-                                borderColor = COLORS.borderDark,
-                                backgroundColor = {92, 63, 36, 255},
-                                textColor = {235, 218, 185, 255},
-                                onClick = function()
-                                    self:Hide()
-                                end,
-                            },
-                        },
-                    },
-                    UI.Panel {
-                        width = "100%",
-                        height = 2,
-                        borderRadius = 1,
-                        backgroundColor = COLORS.border,
-                    },
-                    UI.Panel {
-                        width = "100%",
-                        flexDirection = "row",
-                        justifyContent = "space-between",
-                        alignItems = "center",
-                        gap = 10,
-                        children = {
-                            UI.Panel {
-                                flexGrow = 1,
-                                flexShrink = 1,
-                                paddingHorizontal = 10,
-                                paddingVertical = 7,
-                                backgroundColor = COLORS.panelInner,
-                                borderRadius = 12,
-                                borderWidth = 2,
-                                borderColor = COLORS.border,
-                                children = { self.subtitleLabel },
-                            },
-                            UI.Panel {
-                                width = 78,
-                                height = 38,
-                                borderRadius = 12,
-                                borderWidth = 2,
-                                borderColor = COLORS.border,
-                                backgroundColor = COLORS.cardDark,
-                                alignItems = "center",
-                                justifyContent = "center",
-                                children = { self.countLabel },
-                            },
-                        },
-                    },
-                    self.scrollView,
-                },
-            },
-        },
+        children = { self.panel },
     }
 
     return self
@@ -305,11 +344,12 @@ function RogueBuffListView:GetRoot()
 end
 
 function RogueBuffListView:Show(state)
-    local rewards = state and state.rogueRewardHistory or {}
+    local rewards = BuildOwnedRewards(state)
     self.listPanel:RemoveAllChildren()
-    self.titleLabel:SetText("机缘")
-    self.subtitleLabel:SetText("本次轮回已获得的机缘增益")
+    self.titleLabel:SetText("已拥有技能")
+    self.subtitleLabel:SetText("本轮已获得的肉鸽技能与当前层级")
     self.countLabel:SetText(string.format("%d项", #rewards))
+    print(string.format("[Rogue Skills] 打开已拥有技能面板，共%d项", #rewards))
 
     if #rewards == 0 then
         self.listPanel:AddChild(UI.Panel {
@@ -325,7 +365,7 @@ function RogueBuffListView:Show(state)
             boxShadow = HardShadow(),
             children = {
                 UI.Label {
-                    text = "尚未获得机缘\n突破境界后选择的机缘会记录在这里",
+                    text = "尚未拥有肉鸽技能\n突破境界并完成机缘选择后会显示在这里",
                     width = "100%",
                     fontSize = 15,
                     lineHeight = 1.5,
@@ -342,6 +382,15 @@ function RogueBuffListView:Show(state)
     end
 
     self.root:SetVisible(true)
+    self.panel:Animate({
+        keyframes = {
+            [0] = { opacity = 0, scale = 0.88 },
+            [1] = { opacity = 1, scale = 1.0 },
+        },
+        duration = 0.22,
+        easing = "easeOutCubic",
+        fillMode = "forwards",
+    })
 end
 
 function RogueBuffListView:Hide()

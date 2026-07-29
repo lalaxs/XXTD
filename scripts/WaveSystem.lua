@@ -104,6 +104,11 @@ function WaveSystem.CreateMonsterFromDef(def, col, row, state)
     local hpGrowth = 1.0 + waveRank * (isEndlessAscension and (Config.ENDLESS_WAVE_HP_GROWTH or 0) or (Config.WAVE_ENEMY_HP_GROWTH or 0))
     local atkGrowth = 1.0 + waveRank * (isEndlessAscension and (Config.ENDLESS_WAVE_ATK_GROWTH or 0) or (Config.WAVE_ENEMY_ATK_GROWTH or 0))
     local realmAtkScale = (Config.REALM_ENEMY_ATK_SCALE and Config.REALM_ENEMY_ATK_SCALE[def.realm or 1]) or 1.0
+    local lateGameHpMul = 1.0
+    if not isEndlessAscension then
+        local majorIndex = Config.GetRealmMajorIndex(state and state.realmIndex or 1)
+        lateGameHpMul = (Config.LATE_GAME_ENEMY_HP_MUL_BY_MAJOR and Config.LATE_GAME_ENEMY_HP_MUL_BY_MAJOR[majorIndex]) or 1.0
+    end
     local atkMul = enemyMul * atkPressureMul * (1 + (difficulty.enemyAtkBonus or 0)) * realmAtkScale
     local enemyHpMul = (1 + RogueRewardSystem.GetModifierValue(state, "enemyHpPct"))
         * DailyChallenge.GetEffect(state, "monsterHpMul", 1.0)
@@ -111,7 +116,7 @@ function WaveSystem.CreateMonsterFromDef(def, col, row, state)
         * DailyChallenge.GetEffect(state, "monsterAtkMul", 1.0)
     local enemyDefenseMul = (1 + RogueRewardSystem.GetModifierValue(state, "enemyDefensePct"))
         * DailyChallenge.GetEffect(state, "monsterDefenseMul", 1.0)
-    local hp = math.max(1, math.floor((def.hp or 1) * enemyMul * hpPressureMul * hpGrowth * enemyHpMul + 0.5))
+    local hp = math.max(1, math.floor((def.hp or 1) * enemyMul * hpPressureMul * hpGrowth * lateGameHpMul * enemyHpMul + 0.5))
     local atk = math.max(1, math.floor((def.atk or 1) * atkMul * atkGrowth * enemyAtkMul + 0.5))
     local defense = math.max(0, math.floor((def.defense or 0) * defPressureMul * enemyDefenseMul + 0.5))
     local exp = math.max(1, math.floor((def.exp or 0) * expGlobalMul * expPressureMul * expRewardMul + 0.5))
@@ -130,6 +135,7 @@ function WaveSystem.CreateMonsterFromDef(def, col, row, state)
         atk = atk,
         baseAtk = def.atk,
         defense = defense,
+        baseDefense = def.defense or 0,
         critChance = def.critChance or 0,
         critMultiplier = def.critMultiplier or 1.0,
         exp = exp,

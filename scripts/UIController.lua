@@ -12,14 +12,17 @@ local MainMenuView = require("views.MainMenuView")
 local ReincarnationView = require("views.ReincarnationView")
 local RogueBuffListView = require("views.RogueBuffListView")
 local DebugStatusView = require("views.DebugStatusView")
+local DebugWeaponView = require("views.DebugWeaponView")
 local TitleView = require("views.TitleView")
 local LeaderboardView = require("views.LeaderboardView")
 local DailyChallengeView = require("views.DailyChallengeView")
+local DailyTagView = require("views.DailyTagView")
 local LeaderboardService = require("LeaderboardService")
 local DailyChallenge = require("DailyChallenge")
 local DailyChallengeProgress = require("DailyChallengeProgress")
 local FloatingTextView = require("views.FloatingTextView")
 local DebugStatusSystem = require("debug.DebugStatusSystem")
+local DebugWeaponSystem = require("debug.DebugWeaponSystem")
 local ReincarnationActions = require("actions.ReincarnationActions")
 local GameEvents = require("GameEvents")
 local VisualState = require("VisualState")
@@ -127,9 +130,11 @@ function UIController.Create(state, callbacks)
         reincarnationView = nil,
         rogueBuffListView = nil,
         debugStatusView = nil,
+        debugWeaponView = nil,
         titleView = nil,
         leaderboardView = nil,
         dailyChallengeView = nil,
+        dailyTagView = nil,
         floatingTextView = nil,
         dragContext = nil,
         inventoryMgr = nil,
@@ -296,6 +301,7 @@ function UIController.Create(state, callbacks)
             self:ShowLeaderboard(self.currentDailyChallengeId_)
         end,
     })
+    self.dailyTagView = DailyTagView.Create()
     self.debugStatusView = DebugStatusView.Create({
         onApply = function(statusId)
             if self.currentState_ and DebugStatusSystem.Apply(self.currentState_, statusId) then
@@ -312,10 +318,73 @@ function UIController.Create(state, callbacks)
         end,
     })
 
+    self.debugWeaponView = DebugWeaponView.Create({
+        onEquipWeapon = function(weaponId, quality)
+            if self.currentState_ and DebugWeaponSystem.EquipWeapon(self.currentState_, weaponId, quality) then
+                self.debugWeaponView:Refresh(self.currentState_)
+                self:UpdateAll(self.currentState_)
+            end
+        end,
+        onToggleSkill = function(skill, enabled)
+            if self.currentState_ and DebugWeaponSystem.SetSkillEnabled(self.currentState_, skill, enabled) then
+                self.debugWeaponView:Refresh(self.currentState_)
+                self:UpdateAll(self.currentState_)
+            end
+        end,
+        onSetAllSkills = function(weaponId, enabled)
+            if self.currentState_ then
+                DebugWeaponSystem.SetAllSkills(self.currentState_, weaponId, enabled)
+                self.debugWeaponView:Refresh(self.currentState_)
+                self:UpdateAll(self.currentState_)
+            end
+        end,
+        onCreateSkillChoices = function()
+            if not self.currentState_ then return false end
+            local ok, message = DebugWeaponSystem.CreateSkillChoices(self.currentState_)
+            if not ok then
+                self:ShowOperationWarning(message or "无法打开修炼提升三选一")
+                return false
+            end
+            self:UpdateAll(self.currentState_)
+            return true
+        end,
+        onScenario = function(scenarioId)
+            if self.currentState_ and DebugWeaponSystem.PrepareScenario(self.currentState_, scenarioId) then
+                self.debugWeaponView:Refresh(self.currentState_)
+                self:UpdateAll(self.currentState_)
+            end
+        end,
+        onFieldRewardScenario = function(rewardCategory)
+            if self.currentState_ and DebugWeaponSystem.PrepareFieldRewardScenario(self.currentState_, rewardCategory) then
+                self.debugWeaponView:Refresh(self.currentState_)
+                self:UpdateAll(self.currentState_)
+            end
+        end,
+        onSetHp = function(ratio)
+            if self.currentState_ then
+                DebugWeaponSystem.SetPlayerHpRatio(self.currentState_, ratio)
+                self.debugWeaponView:Refresh(self.currentState_)
+                self:UpdateAll(self.currentState_)
+            end
+        end,
+        onExecuteTurn = function()
+            if self.callbacks.onDebugExecuteTurn then
+                self.callbacks.onDebugExecuteTurn()
+            end
+        end,
+        onClear = function()
+            if self.currentState_ and DebugWeaponSystem.Clear(self.currentState_) then
+                self.debugWeaponView:Refresh(self.currentState_)
+                self:UpdateAll(self.currentState_)
+            end
+        end,
+    })
+
     local debugEntry = nil
+    local weaponDebugEntry = nil
     if Config.DEBUG and Config.DEBUG.ENABLE_PLAYER_STATUS_PANEL == true then
         debugEntry = UI.Button {
-            text = "调试",
+            text = "状态",
             position = "absolute",
             top = 12,
             right = 12,
@@ -333,6 +402,31 @@ function UIController.Create(state, callbacks)
             onClick = function()
                 if self.currentState_ then
                     self.debugStatusView:Show(self.currentState_)
+                end
+            end,
+        }
+    end
+
+    if Config.DEBUG and Config.DEBUG.ENABLE_WEAPON_TEST_PANEL == true then
+        weaponDebugEntry = UI.Button {
+            text = "武器测试",
+            position = "absolute",
+            top = 56,
+            right = 12,
+            width = 88,
+            height = 36,
+            zIndex = 1100,
+            fontSize = 13,
+            fontWeight = "bold",
+            borderRadius = 10,
+            borderWidth = 2,
+            borderColor = {255, 219, 160, 255},
+            backgroundColor = {107, 125, 120, 245},
+            pressedBackgroundColor = {79, 98, 93, 255},
+            textColor = {255, 245, 230, 255},
+            onClick = function()
+                if self.currentState_ then
+                    self.debugWeaponView:Show(self.currentState_)
                 end
             end,
         }
@@ -356,11 +450,16 @@ function UIController.Create(state, callbacks)
         self.titleView:GetRoot(),
         self.leaderboardView:GetRoot(),
         self.dailyChallengeView:GetRoot(),
+        self.dailyTagView:GetRoot(),
         self.debugStatusView:GetRoot(),
+        self.debugWeaponView:GetRoot(),
         self.gameOverPanel,
     }
     if debugEntry then
         table.insert(gameContainerChildren, debugEntry)
+    end
+    if weaponDebugEntry then
+        table.insert(gameContainerChildren, weaponDebugEntry)
     end
 
     self.uiRoot = UI.Panel {
@@ -588,6 +687,8 @@ function UIController:UpgradeReincarnation(upgradeId)
     local result = ReincarnationActions.Upgrade(self.currentState_, upgradeId)
     if not result.ok then
         self:ShowOperationWarning(result.message)
+    elseif self.callbacks.onCultivationUpgrade then
+        self.callbacks.onCultivationUpgrade()
     end
     if self.reincarnationView then
         self.reincarnationView:Show(self.currentState_)
@@ -683,6 +784,9 @@ function UIController:ShowFloatingEvents(state)
 
     if events.breakthroughEvent then
         local event = events.breakthroughEvent
+        if self.callbacks.onCultivationUpgrade then
+            self.callbacks.onCultivationUpgrade()
+        end
         self.floatingTextView:ShowCenter("突破·" .. tostring(event.realmName or "新境界"), {
             variant = "breakthrough",
             anchorY = 0.36,
@@ -815,6 +919,10 @@ function UIController:UpdateBoard(state)
             if self.callbacks.onShopClick then
                 self.callbacks.onShopClick()
             end
+        end,
+        onDailyTagsClick = function(challenge)
+            self:HideItemInfo()
+            self.dailyTagView:Show(challenge)
         end,
         onMainMenuClick = function()
             self:ShowMainMenu()

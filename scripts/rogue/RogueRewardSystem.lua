@@ -48,8 +48,14 @@ local function GetRewardLevel(state, rewardId)
     return state.selectedRogueRewards[rewardId] or 0
 end
 
+local function IsSelectedWeaponSkill(state, def)
+    if def.kind ~= "weaponSkill" then return false end
+    if GetRewardLevel(state, def.id) > 0 then return true end
+    return def.skillId and (state.weaponUpgradeLevels["weaponSkill:" .. def.skillId] or 0) > 0
+end
+
 local function GetRewardStage(def)
-    if def.kind == "unlock" or def.kind == "weapon" or def.rewardGroup == "attack" then
+    if def.kind == "unlock" or def.kind == "weapon" or def.kind == "weaponSkill" or def.rewardGroup == "attack" then
         return "attack"
     end
     if def.kind == "unlockArmor" or def.kind == "armor" or def.rewardGroup == "defense" then
@@ -61,9 +67,33 @@ local function GetRewardStage(def)
     return nil
 end
 
+local function IsWeaponOwned(state, weaponId)
+    if not weaponId then return false end
+    for _, item in pairs(state.slots or {}) do
+        if item and item.baseId == weaponId then return true end
+    end
+    for _, item in ipairs(state.dropQueue or {}) do
+        if item and item.baseId == weaponId then return true end
+    end
+    return false
+end
+
+local function AreRequiredWeaponsAvailable(state, def)
+    local requiredWeapons = def.requiredWeapons
+    if not requiredWeapons or #requiredWeapons == 0 then
+        return def.kind ~= "weaponSkill" or IsWeaponOwned(state, def.weaponId)
+    end
+
+    local matches = 0
+    for _, weaponId in ipairs(requiredWeapons) do
+        if IsWeaponOwned(state, weaponId) then matches = matches + 1 end
+    end
+    return def.requiresAnyWeapon and matches > 0 or matches == #requiredWeapons
+end
+
 local function IsAvailable(state, def)
     local level = GetRewardLevel(state, def.id)
-    if level >= (def.maxStacks or 1) then return false end
+    if level >= (def.maxStacks or 1) or IsSelectedWeaponSkill(state, def) then return false end
 
     if def.kind == "unlock" then
         return CanUnlockWeapon(state, def.weaponId)
@@ -77,6 +107,12 @@ local function IsAvailable(state, def)
     if def.kind == "weapon" then
         return state.runWeapons[def.weaponId] == true
     end
+    if def.kind == "weaponSkill" then
+        if def.hideWhenAllRequiredWeapons and AreRequiredWeaponsAvailable(state, { requiredWeapons = def.requiredWeapons }) then
+            return false
+        end
+        return AreRequiredWeaponsAvailable(state, def)
+    end
     return true
 end
 
@@ -89,13 +125,19 @@ local function CopyReward(state, def)
         category = def.category,
         desc = def.desc,
         kind = def.kind,
+        skillId = def.skillId,
         weaponId = def.weaponId,
+        weaponIds = def.weaponIds,
+        requiredWeapons = def.requiredWeapons,
+        requiresAnyWeapon = def.requiresAnyWeapon == true,
+        hideWhenAllRequiredWeapons = def.hideWhenAllRequiredWeapons == true,
         armorId = def.armorId,
         rewardGroup = def.rewardGroup,
         modifier = def.modifier and { stat = def.modifier.stat, value = def.modifier.value } or nil,
         icon = def.icon,
         abilityName = def.abilityName,
         abilityDesc = def.abilityDesc,
+        cardDesc = def.cardDesc,
         level = level,
         nextLevel = level + 1,
         maxStacks = def.maxStacks or 1,
@@ -130,7 +172,7 @@ local function BuildCandidates(state, stage)
             for k, v in pairs(def) do copy[k] = v end
             if def.kind == "unlock" or def.kind == "unlockArmor" then
                 copy.weight = major <= 3 and 7 or (major <= 6 and 4 or 2)
-            elseif def.kind == "weapon" then
+            elseif def.kind == "weapon" or def.kind == "weaponSkill" then
                 copy.weight = major <= 2 and 2 or 5
             end
             table.insert(candidates, copy)
@@ -139,11 +181,17 @@ local function BuildCandidates(state, stage)
     return candidates
 end
 
-local function BuildOffer(state, candidates)
+local function BuildOffer(state, candidates, stage)
     local selected, ids, itemCounts = {}, {}, {}
 
     local function canPick(def)
         if ids[def.id] then return false end
+        if def.kind == "weaponSkill" and def.weaponIds then
+            for _, weaponId in ipairs(def.weaponIds) do
+                if (itemCounts[weaponId] or 0) >= 1 then return false end
+            end
+            return true
+        end
         local itemId = def.weaponId or def.armorId
         return not itemId or (itemCounts[itemId] or 0) < 1
     end
@@ -152,14 +200,31 @@ local function BuildOffer(state, candidates)
         if not def then return false end
         table.insert(selected, def)
         ids[def.id] = true
-        local itemId = def.weaponId or def.armorId
-        if itemId then itemCounts[itemId] = (itemCounts[itemId] or 0) + 1 end
+        if def.kind == "weaponSkill" and def.weaponIds then
+            for _, weaponId in ipairs(def.weaponIds) do
+                itemCounts[weaponId] = (itemCounts[weaponId] or 0) + 1
+            end
+        else
+            local itemId = def.weaponId or def.armorId
+            if itemId then itemCounts[itemId] = (itemCounts[itemId] or 0) + 1 end
+        end
         return true
     end
 
-    local first = WeightedPick(state, candidates, ids, function(def)
-        return def.immediate and canPick(def)
-    end)
+    local major = Config.GetRealmMajorIndex(state.realmIndex or 1)
+    local first = nil
+    if stage == "attack" and major == 2 then
+        first = WeightedPick(state, candidates, ids, function(def)
+            return def.kind == "weaponSkill"
+                and def.weaponId == "qingfeng_sword"
+                and canPick(def)
+        end)
+    end
+    if not first then
+        first = WeightedPick(state, candidates, ids, function(def)
+            return def.immediate and canPick(def)
+        end)
+    end
     add(first)
     while #selected < math.min(3, #candidates) do
         local nextDef = WeightedPick(state, candidates, ids, canPick)
@@ -195,7 +260,7 @@ end
 function RogueRewardSystem.CreateChoicesForStage(state, stage)
     EnsureTables(state)
     local choices = {}
-    for _, def in ipairs(BuildOffer(state, BuildCandidates(state, stage))) do
+    for _, def in ipairs(BuildOffer(state, BuildCandidates(state, stage), stage)) do
         table.insert(choices, CopyReward(state, def))
     end
     state.pendingRogueStage = stage
@@ -292,12 +357,20 @@ function RogueRewardSystem.SelectChoice(state, rewardId)
         if not GrantUnlockArmor(state, picked) then
             return { ok = false, message = "防御法宝已达到上限" }
         end
+    elseif picked.kind == "weaponSkill" then
+        if not AreRequiredWeaponsAvailable(state, picked) then
+            return { ok = false, message = "对应攻击法宝条件未满足" }
+        end
     elseif picked.modifier then
         table.insert(state.modifiers, picked.modifier)
     end
 
     state.selectedRogueRewards[picked.id] = picked.nextLevel
-    if picked.weaponId then state.weaponUpgradeLevels[picked.id] = picked.nextLevel end
+    if picked.kind == "weaponSkill" then
+        state.weaponUpgradeLevels["weaponSkill:" .. picked.skillId] = picked.nextLevel
+    elseif picked.weaponId then
+        state.weaponUpgradeLevels[picked.id] = picked.nextLevel
+    end
     if picked.armorId then state.armorUpgradeLevels[picked.id] = picked.nextLevel end
     AddHistory(state, picked, stage)
 

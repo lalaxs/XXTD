@@ -5,6 +5,7 @@ local Config = require("Config")
 local ItemSystem = require("ItemSystem")
 local BuffSystem = require("BuffSystem")
 local KillResolver = require("combat.KillResolver")
+local DefenseDown = require("combat.DefenseDown")
 local RogueRewardSystem = require("rogue.RogueRewardSystem")
 local GameEvents = require("GameEvents")
 local VisualEventQueue = require("events.VisualEventQueue")
@@ -17,8 +18,40 @@ local function IsConsumable(item)
     return category == "pill" or category == "talisman"
 end
 
+local SUPPORTED_PILL_EFFECTS = {
+    heal = true,
+    shield = true,
+    cleanse = true,
+    attackBuff = true,
+    deathSave = true,
+}
+
+local SUPPORTED_TALISMAN_EFFECTS = {
+    damage = true,
+    root = true,
+    armorBreak = true,
+    attackDown = true,
+    vulnerable = true,
+}
+
 local function HasUsableEffect(item)
-    return IsConsumable(item)
+    if not IsConsumable(item) then return false end
+
+    local category = ItemSystem.GetCategory(item)
+    if category == "pill" then
+        local effect = item.pillEffect
+        if effect and SUPPORTED_PILL_EFFECTS[effect.type] then return true end
+        return (item.healPerSec or item.value or 0) > 0
+            or (item.teamAtkBonus or 0) > 0
+    end
+
+    local effect = item.talismanEffect
+    if effect and SUPPORTED_TALISMAN_EFFECTS[effect.type] then return true end
+    return (item.aoeDmg or item.atk or 0) > 0
+        or item.controlType == "slow"
+        or item.controlType == "stun_slow"
+        or item.controlType == "stun"
+        or item.controlType == "root"
 end
 
 local function GetItem(state, category, index)
@@ -56,18 +89,50 @@ local function ClearPlayerDebuffs(state)
     state.pendingSealedSlots = nil
 end
 
-local function ClearOnePlayerDebuff(state)
-    if state.playerDebuffs then
-        for key, _ in pairs(state.playerDebuffs) do
-            state.playerDebuffs[key] = nil
+local PLAYER_DEBUFF_PRIORITY = { "attackDown", "vulnerable" }
+
+local function ClearFirstStableKey(entries, priority)
+    if not entries then return false end
+
+    local handled = {}
+    for _, key in ipairs(priority or {}) do
+        handled[key] = true
+        if entries[key] ~= nil then
+            entries[key] = nil
             return true
         end
     end
-    if state.sealedSlots then
-        for slotIdx, _ in pairs(state.sealedSlots) do
-            state.sealedSlots[slotIdx] = nil
+
+    local remaining = {}
+    for key, _ in pairs(entries) do
+        if not handled[key] then
+            table.insert(remaining, key)
+        end
+    end
+    table.sort(remaining, function(a, b) return tostring(a) < tostring(b) end)
+    if #remaining == 0 then return false end
+
+    entries[remaining[1]] = nil
+    return true
+end
+
+local function ClearFirstSealedSlot(sealedSlots)
+    if not sealedSlots then return false end
+    for slotIdx = 1, Config.TOTAL_SLOTS do
+        if sealedSlots[slotIdx] ~= nil then
+            sealedSlots[slotIdx] = nil
             return true
         end
+    end
+    return false
+end
+
+local function ClearOnePlayerDebuff(state)
+    if ClearFirstStableKey(state.playerDebuffs, PLAYER_DEBUFF_PRIORITY) then
+        return true
+    end
+    if ClearFirstSealedSlot(state.sealedSlots) then
+        return true
     end
     if (state.poisonStacks or 0) > 0 then
         state.poisonStacks = 0
@@ -77,19 +142,10 @@ local function ClearOnePlayerDebuff(state)
         end
         return true
     end
-    if state.pendingPlayerDebuffs then
-        for key, _ in pairs(state.pendingPlayerDebuffs) do
-            state.pendingPlayerDebuffs[key] = nil
-            return true
-        end
+    if ClearFirstStableKey(state.pendingPlayerDebuffs, PLAYER_DEBUFF_PRIORITY) then
+        return true
     end
-    if state.pendingSealedSlots then
-        for slotIdx, _ in pairs(state.pendingSealedSlots) do
-            state.pendingSealedSlots[slotIdx] = nil
-            return true
-        end
-    end
-    return false
+    return ClearFirstSealedSlot(state.pendingSealedSlots)
 end
 
 local function ClearPlayerDebuffsByCount(state, count)
@@ -138,11 +194,6 @@ local function UsePill(state, item)
     elseif effect and effect.type == "attackBuff" then
         BuffSystem.AddBuff(state, "atkUp", effect.value or 0, effect.duration or 3)
         GameEvents.AddPlayerStatus(state, "法宝增伤", "buff")
-        if (effect.speedValue or item.teamAtkSpeedBonus or 0) > 0 then
-            BuffSystem.AddBuff(state, "atkSpeedUp", effect.speedValue or item.teamAtkSpeedBonus or 0, effect.duration or 3)
-            GameEvents.AddPlayerStatus(state, "追加出手", "buff")
-            return string.format("使用%s，法宝伤害提升%d%%，追加出手提升%d%%", item.name, math.floor((effect.value or 0) * 100), math.floor((effect.speedValue or item.teamAtkSpeedBonus or 0) * 100))
-        end
         return string.format("使用%s，法宝伤害提升%d%%", item.name, math.floor((effect.value or 0) * 100))
     elseif effect and effect.type == "deathSave" then
         if state.deathSaveUsed then
@@ -166,10 +217,6 @@ local function UsePill(state, item)
     if item.teamAtkBonus and item.teamAtkBonus > 0 then
         BuffSystem.AddBuff(state, "atkUp", item.teamAtkBonus, item.duration or 5)
         GameEvents.AddPlayerStatus(state, "法宝增伤", "buff")
-    end
-    if item.teamAtkSpeedBonus and item.teamAtkSpeedBonus > 0 then
-        BuffSystem.AddBuff(state, "atkSpeedUp", item.teamAtkSpeedBonus, item.duration or 5)
-        GameEvents.AddPlayerStatus(state, "追加出手", "buff")
     end
 
     return string.format("使用%s，恢复%d气血", item.name, actualHeal), actualHeal
@@ -224,8 +271,12 @@ local function UseTalisman(state, item)
             monster.rootTurns = math.max(monster.rootTurns or 0, effect.turns or 1)
             GameEvents.AddMonsterStatus(state, monster, "定身", "control")
         elseif effect and effect.type == "armorBreak" then
-            monster.defenseDown = math.max(monster.defenseDown or 0, (effect.value or 0) * talismanMul)
-            monster.defenseDownTurns = math.max(monster.defenseDownTurns or 0, effect.duration or 2)
+            DefenseDown.ApplyExternal(
+                monster,
+                item.baseId or item.id or "talisman",
+                (effect.value or 0) * talismanMul,
+                effect.duration or 2
+            )
             GameEvents.AddMonsterStatus(state, monster, "破甲", "debuff")
         elseif effect and effect.type == "attackDown" then
             monster.attackDown = math.max(monster.attackDown or 0, (effect.value or 0) * talismanMul)

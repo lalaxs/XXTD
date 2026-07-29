@@ -2,6 +2,8 @@
 -- 一把仙剑闯天关 - 手机竖屏版
 
 local UI = require("urhox-libs/UI")
+local RawUIButton = UI.Button
+local RawUIButtonNew = UI.Button.new
 local RealmSystem = require("RealmSystem")
 local Effects = require("Effects")
 local DragActions = require("DragActions")
@@ -14,7 +16,7 @@ local TurnFlowController = require("flow.TurnFlowController")
 local LeaderboardService = require("LeaderboardService")
 local DailyChallenge = require("DailyChallenge")
 local DailyChallengeProgress = require("DailyChallengeProgress")
--- VectorIcons 和 FieldView 的图标绘制已移到 UI 层
+-- 棋盘、道具和图标绘制已统一移入当前 UI 视图层。
 -- NanoVG 只负责特效
 
 ---@type table|nil
@@ -23,9 +25,32 @@ local uiController_ = nil
 local vg_ = nil
 local firstFrameDone_ = false
 local turnFlow_ = nil
+---@type Scene|nil
+local audioScene_ = nil
+---@type SoundSource|nil
+local bgmSource_ = nil
+---@type Sound|nil
+local bgmSound_ = nil
+
+local BGM_PATH = "audio/bgm_zhangjian_baizhen.ogg"
+local BGM_GAIN = 0.42
+local SFX_BUTTON_PATH = "audio/sfx/sfx_ui_button_jianghu.mp3"
+local SFX_HIT_PATH = "audio/sfx/sfx_weapon_hit_jianghu.mp3"
+local SFX_CULTIVATION_PATH = "audio/sfx/sfx_cultivation_upgrade_jianghu.mp3"
+local SFX_BUTTON_GAIN = 0.55
+local SFX_HIT_GAIN = 0.58
+local SFX_CULTIVATION_GAIN = 0.68
 
 local StartNewGame
 local CreateUI
+local StartBackgroundMusic
+local RestartBackgroundMusic
+local StopBackgroundMusic
+local PlaySoundEffect
+local PlayButtonSound
+local PlayHitSound
+local PlayCultivationSound
+local InstallButtonSounds
 local TriggerMergeEffect
 local OnDragStart
 local CanDrop
@@ -69,6 +94,13 @@ local function CreateTurnFlowController()
             UpdateAllUI()
         end,
         onShowHitVisual = function(hitVisualState)
+            local damageEvents = hitVisualState and hitVisualState.visualEventQueue and hitVisualState.visualEventQueue.damageDealt or {}
+            for _, damageEvent in ipairs(damageEvents) do
+                if damageEvent and (damageEvent.dmg or 0) > 0 then
+                    PlayHitSound()
+                    break
+                end
+            end
             if uiController_ and hitVisualState then
                 uiController_:UpdateAll(hitVisualState)
             end
@@ -110,16 +142,20 @@ function Start()
 
     vg_ = nvgCreate(1)
     CreateTurnFlowController()
+    InstallButtonSounds()
 
     StartNewGame()
     CreateUI()
+    StartBackgroundMusic()
     SubscribeToEvent("Update", "HandleUpdate")
     SubscribeToEvent("NanoVGRender", "HandleNanoVGRender")
+    SubscribeToEvent("SoundFinished", "HandleSoundFinished")
 
     print("=== 一把仙剑闯天关 启动 ===")
 end
 
 function Stop()
+    StopBackgroundMusic()
     UI.Shutdown()
     if vg_ then
         nvgDelete(vg_)
@@ -129,6 +165,105 @@ end
 
 StartNewGame = function()
     StartNewGameWithProgress(nil)
+end
+
+StartBackgroundMusic = function()
+    if bgmSource_ and bgmSource_:IsPlaying() then
+        return
+    end
+
+    bgmSound_ = cache:GetResource("Sound", BGM_PATH)
+    if not bgmSound_ then
+        print("[Audio] BGM 加载失败: " .. BGM_PATH)
+        return
+    end
+
+    if not audioScene_ then
+        audioScene_ = Scene()
+    end
+    local audioNode = audioScene_:CreateChild("BackgroundMusic")
+    bgmSource_ = audioNode:CreateComponent("SoundSource")
+    bgmSound_:SetLooped(true)
+    bgmSource_:SetSoundType(SOUND_MUSIC)
+    bgmSource_:SetGain(BGM_GAIN)
+    bgmSource_:Play(bgmSound_)
+
+    local buttonSound = cache:GetResource("Sound", SFX_BUTTON_PATH)
+    local hitSound = cache:GetResource("Sound", SFX_HIT_PATH)
+    local cultivationSound = cache:GetResource("Sound", SFX_CULTIVATION_PATH)
+    if buttonSound and hitSound and cultivationSound then
+        print("[Audio] 按钮、击打、修炼音效预加载完成")
+    else
+        print("[Audio] 部分游戏音效预加载失败")
+    end
+
+    print(string.format("[Audio] BGM 开始循环播放: %s，音量=%.2f", BGM_PATH, BGM_GAIN))
+end
+
+RestartBackgroundMusic = function()
+    if not bgmSource_ or not bgmSound_ then
+        StartBackgroundMusic()
+        return
+    end
+    bgmSource_:Play(bgmSound_)
+    print("[Audio] BGM 已从开头重新循环")
+end
+
+PlaySoundEffect = function(soundPath, gain)
+    if not audioScene_ then
+        audioScene_ = Scene()
+    end
+
+    local sound = cache:GetResource("Sound", soundPath)
+    if not sound then
+        print("[Audio] 音效加载失败: " .. soundPath)
+        return
+    end
+
+    local soundNode = audioScene_:CreateChild("SoundEffect")
+    local source = soundNode:CreateComponent("SoundSource")
+    source:SetSoundType(SOUND_EFFECT)
+    source:SetGain(gain or 1.0)
+    source:SetAutoRemoveMode(REMOVE_NODE)
+    source:Play(sound)
+end
+
+PlayButtonSound = function()
+    PlaySoundEffect(SFX_BUTTON_PATH, SFX_BUTTON_GAIN)
+end
+
+PlayHitSound = function()
+    PlaySoundEffect(SFX_HIT_PATH, SFX_HIT_GAIN)
+end
+
+PlayCultivationSound = function()
+    PlaySoundEffect(SFX_CULTIVATION_PATH, SFX_CULTIVATION_GAIN)
+end
+
+InstallButtonSounds = function()
+    RawUIButton.new = function(self, props)
+        props = props or {}
+        local onClick = props.onClick
+        if onClick then
+            props.onClick = function(widget, event)
+                PlayButtonSound()
+                onClick(widget, event)
+            end
+        end
+        return RawUIButtonNew(self, props)
+    end
+end
+
+StopBackgroundMusic = function()
+    if bgmSource_ then
+        bgmSource_:StopImmediate()
+        bgmSource_ = nil
+    end
+    bgmSound_ = nil
+    if audioScene_ then
+        audioScene_:Dispose()
+        audioScene_ = nil
+    end
 end
 
 CreateUI = function()
@@ -149,6 +284,20 @@ CreateUI = function()
         onReincarnate = EnterReincarnation,
         onOpenDailyChallenge = OpenDailyChallenge,
         onBeginDailyChallenge = StartDailyChallenge,
+        onCultivationUpgrade = PlayCultivationSound,
+        onDebugExecuteTurn = function()
+            ResolvePendingTurnVisual()
+            if HasPendingRogueChoice() then
+                ShowOperationUnavailable()
+                return
+            end
+            if turnFlow_ then
+                turnFlow_:ExecutePlayerTurn(state_)
+            else
+                require("combat.TurnEngine").ExecuteTurn(state_)
+                UpdateAllUI()
+            end
+        end,
     })
 end
 
@@ -423,10 +572,20 @@ EnterReincarnation = function()
     UpdateAllUI()
 end
 
+function HandleSoundFinished(eventType, eventData)
+    local source = eventData:GetPtr("SoundSource")
+    if source == bgmSource_ then
+        RestartBackgroundMusic()
+    end
+end
+
 ---@param eventType string
 ---@param eventData UpdateEventData
 function HandleUpdate(eventType, eventData)
     local dt = eventData:GetFloat("TimeStep")
+    if bgmSource_ and bgmSound_ and not bgmSource_:IsPlaying() then
+        RestartBackgroundMusic()
+    end
     Effects.Update(dt)
     if turnFlow_ then
         turnFlow_:Update(dt)
@@ -441,8 +600,8 @@ function HandleUpdate(eventType, eventData)
     end
 end
 
--- 图标绘制已全部移入 UI 层（FieldView + UIController.ApplyItemSlotVisual）
-
+-- 棋盘与道具绘制已统一移入当前 UI 视图层。
+-- NanoVG 只负责特效。
 function HandleNanoVGRender(eventType, eventData)
     if not vg_ or not uiController_ then return end
 

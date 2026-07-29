@@ -136,14 +136,20 @@ local function RebuildStatusArea(container, state)
         for i = 1, #statuses do
             statusWrap:AddChild(MakeStatusChip(statuses[i]))
         end
-        container:AddChild(UI.ScrollView {
+        container:AddChild(UI.Panel {
             width = "100%",
             flexGrow = 1,
             flexBasis = 0,
-            scrollY = true,
-            scrollX = false,
-            showScrollbar = true,
-            children = { statusWrap },
+            children = {
+                UI.ScrollView {
+                    width = "100%",
+                    height = "100%",
+                    scrollY = true,
+                    scrollX = false,
+                    showScrollbar = true,
+                    children = { statusWrap },
+                },
+            },
         })
     end
 end

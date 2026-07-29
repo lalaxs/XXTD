@@ -267,11 +267,6 @@ local function GetAttackSlotDisplayStat(state, item, slotIdx)
     if attackDown > 0 then
         value = value * (1 - attackDown)
     end
-    local shockedTurns = state.shockedSlots and state.shockedSlots[slotIdx]
-    if shockedTurns and shockedTurns > 0 then
-        local reduction = state.shockedSlotReduction and state.shockedSlotReduction[slotIdx] or 0
-        value = value * math.max(0, 1 - reduction)
-    end
     return FormatIntegerStat(value)
 end
 
@@ -330,6 +325,7 @@ local function AddDeployStatLabel(boardPanel, item, r, scale, state, slotIdx)
         backgroundColor = {qColor[1], qColor[2], qColor[3], 255},
         alignItems = "center",
         justifyContent = "center",
+        allowOverflow = true,
         pointerEvents = "none",
         children = {
             UI.Label {
@@ -360,6 +356,7 @@ local function AddStatusBars(boardPanel, state, m)
         height = hp.h,
         backgroundImage = UI_ASSETS.hpBarBg,
         backgroundFit = "stretch",
+        allowOverflow = true,
         pointerEvents = "none",
         children = {
             UI.Panel {
@@ -460,6 +457,7 @@ local function AddStatusBars(boardPanel, state, m)
         backgroundColor = {246, 197, 130, 245},
         alignItems = "center",
         justifyContent = "center",
+        allowOverflow = true,
         pointerEvents = "none",
         children = {
             UI.Label {
@@ -481,6 +479,7 @@ local function AddStatusBars(boardPanel, state, m)
         backgroundColor = {0, 0, 0, 0},
         alignItems = "center",
         justifyContent = "center",
+        allowOverflow = true,
         pointerEvents = "none",
         children = {
             UI.Label {
@@ -495,37 +494,53 @@ local function AddStatusBars(boardPanel, state, m)
     })
 end
 
-local function AddDailyChallengeBanner(boardPanel, state, m)
+local function AddDailyTagButton(boardPanel, state, m, callbacks)
     local challenge = state and state.dailyChallenge
     if not challenge then return end
 
+    local tags = challenge.tags or {}
     local tagNames = {}
-    for _, tag in ipairs(challenge.tags or {}) do
-        table.insert(tagNames, tag.name or tag.id)
+    for _, tag in ipairs(tags) do
+        table.insert(tagNames, tag.name or tag.id or "未知词条")
     end
-    local text = "每日挑战  " .. table.concat(tagNames, " · ")
+    local buttonText = #tagNames > 0 and table.concat(tagNames, " · ") or "今日无额外词条"
+    local tagRect = D(m.dailyTags, m.scale)
+
     boardPanel:AddChild(UI.Panel {
         position = "absolute",
-        left = m.originX + 18 * m.scale,
-        top = m.originY + 22 * m.scale,
-        width = DESIGN_W * m.scale - 36 * m.scale,
-        height = 34 * m.scale,
-        paddingHorizontal = 12 * m.scale,
-        backgroundColor = {47, 30, 25, 225},
-        borderWidth = math.max(1, 2 * m.scale),
-        borderColor = {217, 165, 82, 255},
-        borderRadius = 10 * m.scale,
+        left = m.originX + tagRect.x,
+        top = m.originY + tagRect.y,
+        width = tagRect.w,
+        height = tagRect.h,
+        paddingHorizontal = 16 * m.scale,
+        flexDirection = "row",
         alignItems = "center",
         justifyContent = "center",
-        pointerEvents = "none",
+        gap = 10 * m.scale,
+        backgroundColor = {243, 240, 230, 250},
+        borderWidth = math.max(1, 2 * m.scale),
+        borderColor = {166, 60, 51, 235},
+        borderRadius = math.max(12, 20 * m.scale),
+        boxShadow = {
+            { x = 3 * m.scale, y = 3 * m.scale, blur = 0, spread = 0, color = {28, 27, 36, 55} },
+        },
+        pointerEvents = "auto",
+        onTap = function()
+            if callbacks and callbacks.onDailyTagsClick then
+                callbacks.onDailyTagsClick(challenge)
+            end
+        end,
         children = {
             UI.Label {
-                text = text,
+                text = buttonText,
                 width = "100%",
-                fontSize = math.max(10, math.floor(16 * m.scale)),
+                flexShrink = 1,
+                fontSize = math.max(13, math.floor(21 * m.scale)),
                 fontWeight = "bold",
-                fontColor = {255, 233, 174, 255},
+                fontColor = {166, 60, 51, 255},
                 textAlign = "center",
+                maxLines = 2,
+                whiteSpace = "normal",
                 pointerEvents = "none",
             },
         },
@@ -541,7 +556,6 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
     local m = BoardView.CalcMetrics(layout.w, layout.h)
 
     AddImage(boardPanel, m, { x = 0, y = 0, w = DESIGN_W, h = DESIGN_H }, UI_ASSETS.bg, "stretch")
-    AddDailyChallengeBanner(boardPanel, state, m)
     AddStatusBars(boardPanel, state, m)
 
     local coinRect = D(m.coin, m.scale)
@@ -562,6 +576,8 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
         boxShadow = {
             { x = 3 * m.scale, y = 3 * m.scale, blur = 0, spread = 0, color = {28, 27, 36, 55} },
         },
+        overflow = "visible",
+        allowOverflow = true,
         pointerEvents = "none",
         children = {
             CoinIcon {
@@ -589,6 +605,8 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
         height = shopRect.h,
         alignItems = "center",
         justifyContent = "center",
+        overflow = "visible",
+        allowOverflow = true,
         pointerEvents = "none",
         children = {
             ShopIcon {
@@ -617,14 +635,13 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
             end
         end,
     })
-    local shopRect = D(m.shopEntry, m.scale)
+    local shopHitRect = D(m.shopEntry, m.scale)
     boardPanel:AddChild(UI.Panel {
         position = "absolute",
-        left = m.originX + shopRect.x,
-        top = m.originY + shopRect.y,
-        width = shopRect.w,
-        height = shopRect.h,
-        backgroundColor = {0, 0, 0, 0},
+        left = m.originX + shopHitRect.x,
+        top = m.originY + shopHitRect.y,
+        width = shopHitRect.w,
+        height = shopHitRect.h,
         pointerEvents = "auto",
         onTap = function()
             if callbacks and callbacks.onShopClick then
@@ -632,6 +649,8 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
             end
         end,
     })
+
+    AddDailyTagButton(boardPanel, state, m, callbacks)
 
     local expRect = D(m.expCircle, m.scale)
     boardPanel:AddChild(UI.Panel {
@@ -784,14 +803,18 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
                                 height = "100%",
                                 alignItems = "center",
                                 justifyContent = "center",
+                                allowOverflow = true,
                                 pointerEvents = "none",
                                 children = {
                                     UI.Label {
                                         text = tostring(math.max(0, math.floor(monster.hp + 0.5))),
+                                        width = "100%",
+                                        height = "100%",
                                         fontSize = math.floor(27 * m.scale),
                                         fontColor = {255, 250, 235, 255},
                                         fontWeight = "bold",
                                         textAlign = "center",
+                                        verticalAlign = "middle",
                                         pointerEvents = "none",
                                     },
                                 },

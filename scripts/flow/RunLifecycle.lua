@@ -107,7 +107,7 @@ end
 
 function RunLifecycle.EnterReincarnation(state)
     if not state then return nil end
-    RealmSystem.TriggerReincarnation(state)
+    if not RealmSystem.TriggerReincarnation(state) then return state end
     return RunLifecycle.StartNewGame(RunLifecycle.CapturePermanentProgress(state))
 end
 

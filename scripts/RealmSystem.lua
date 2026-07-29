@@ -15,19 +15,25 @@ function RealmSystem.GetExpMultiplier(state)
     return 1.0 + ReincarnationSystem.GetValue(state, "expGain")
 end
 
+local function RefreshReincarnationEligibility(state)
+    local currentRealm = Config.GetRealm(state.realmIndex)
+    local reachedRealmThreshold = state.realmIndex >= Config.REINCARNATION_REALM_INDEX
+        and state.exp >= (currentRealm.expRequired or 0)
+    state.canReincarnate = state.reincarnationClaimed ~= true
+        and (state.ascensionAchieved == true or (not state.ascensionMode and reachedRealmThreshold))
+end
+
 function RealmSystem.AddExp(state, amount, options)
     options = options or {}
-    local finalAmount = math.floor((amount or 0) * RealmSystem.GetExpMultiplier(state))
-    state.exp = state.exp + finalAmount
+    local baseAmount = math.max(0, amount or 0)
+    local finalAmount = math.max(0, math.floor(baseAmount * RealmSystem.GetExpMultiplier(state)))
+    state.exp = math.max(0, (state.exp or 0) + finalAmount)
 
     if not options.deferCheck then
         RealmSystem.CheckRealmUp(state)
     end
 
-    local currentRealm = Config.GetRealm(state.realmIndex)
-    if not state.ascensionMode and state.realmIndex >= Config.REINCARNATION_REALM_INDEX and state.exp >= (currentRealm.expRequired or 0) then
-        state.canReincarnate = true
-    end
+    RefreshReincarnationEligibility(state)
     return finalAmount
 end
 
@@ -146,8 +152,15 @@ function RealmSystem.HandleDeath(state)
 end
 
 function RealmSystem.TriggerReincarnation(state)
+    if not state or state.canReincarnate ~= true or state.reincarnationClaimed == true then
+        return false
+    end
+
+    state.reincarnationClaimed = true
+    state.canReincarnate = false
     ReincarnationSystem.GrantReincarnationPoint(state)
     VisualEventQueue.PushReincarnation(state)
+    return true
 end
 
 return RealmSystem

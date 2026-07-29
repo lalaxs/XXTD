@@ -146,14 +146,20 @@ function DebugStatusView.Create(callbacks)
                         borderColor = COLORS.border,
                         children = { self.activeLabel },
                     },
-                    UI.ScrollView {
+                    UI.Panel {
                         width = "100%",
                         flexGrow = 1,
                         flexBasis = 0,
-                        scrollY = true,
-                        scrollX = false,
-                        showScrollbar = true,
-                        children = { buttonGrid },
+                        children = {
+                            UI.ScrollView {
+                                width = "100%",
+                                height = "100%",
+                                scrollY = true,
+                                scrollX = false,
+                                showScrollbar = true,
+                                children = { buttonGrid },
+                            },
+                        },
                     },
                     UI.Button {
                         text = "清空调试状态",

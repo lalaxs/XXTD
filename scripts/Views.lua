@@ -135,7 +135,7 @@ end
 function Views.CreateDeployPanel(dragContext)
     local slots = {}
 
-    -- 创建透明 ItemSlot（后续由 DeployView.Update 定位）
+    -- 创建透明 ItemSlot（后续由 BoardView.Update 定位）
     for i = 1, Config.TOTAL_SLOTS do
         slots[i] = UI.ItemSlot {
             slotId = "deploy_" .. i,

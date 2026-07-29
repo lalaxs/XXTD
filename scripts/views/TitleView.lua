@@ -250,7 +250,7 @@ function TitleView.Create(callbacks)
     self.noticeLabel = UI.Label {
         text = "",
         width = "100%",
-        height = 22,
+        height = 28,
         fontSize = 14,
         fontWeight = "bold",
         fontColor = COLORS.notice,

@@ -4,7 +4,6 @@
 local HEAL_VALUES = { 30, 60, 120, 240, 480, 960, 1920, 3840, 7680 }
 local SHIELD_VALUES = { 30, 60, 120, 240, 480, 960, 1920, 3840, 7680 }
 local ATK_BUFF = { 0.05, 0.08, 0.10, 0.12, 0.15, 0.18, 0.20, 0.25, 0.30 }
-local ATK_SPEED_BUFF = { 0, 0, 0, 0, 0.10, 0.12, 0.15, 0.18, 0.20 }
 local SAVE_RATIO = { 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60 }
 
 local PILLS = {
@@ -35,7 +34,7 @@ local function BuildEffect(family, quality)
     elseif family == "cleanse" then
         return { type = "cleanse", cleanseCount = CleanseCount(quality), immunityTurns = quality >= 7 and (quality >= 9 and 99 or 2) or 0 }
     elseif family == "attack_buff" then
-        return { type = "attackBuff", value = ATK_BUFF[quality], speedValue = ATK_SPEED_BUFF[quality], duration = DurationByQuality(quality) }
+        return { type = "attackBuff", value = ATK_BUFF[quality], duration = DurationByQuality(quality) }
     elseif family == "death_save" then
         return { type = "deathSave", value = SAVE_RATIO[quality], oncePerRun = true }
     end
@@ -60,7 +59,6 @@ for _, spec in ipairs(PILLS) do
             healPerSec = healPerSec,
             duration = effect and effect.duration or 1,
             teamAtkBonus = effect and effect.type == "attackBuff" and effect.value or 0,
-            teamAtkSpeedBonus = effect and effect.type == "attackBuff" and effect.speedValue or 0,
             globalHealAura = false,
         })
     end

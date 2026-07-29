@@ -188,9 +188,11 @@ function TurnEngine.ExecuteTurn(state)
     MarkPlayerHitDamageEvents(state, playerDamageEventStart)
     if state.isGameOver then return end
     MonsterSystem.RangedAttack(state)
+    KillResolver.Resolve(state)
     FieldRewardSystem.MoveFieldRewards(state)
     MonsterSystem.MoveMonsters(state)
     MonsterSystem.MeleeAttack(state)
+    KillResolver.Resolve(state)
     MonsterSystem.ApplyDamage(state)
     if ResolveDeath(state) then return end
     if state.isGameOver then return end

@@ -58,8 +58,6 @@ function StatusPresenter.BuildStatuses(state)
             AddStatus(list, "buff", "法宝增伤", "提升法宝造成的伤害", turns, "+" .. Percent(buff.value) .. "%")
         elseif buff.type == "allUp" then
             AddStatus(list, "buff", "攻防强化", "提升法宝伤害，并降低受到的伤害", turns, "±" .. Percent(buff.value) .. "%")
-        elseif buff.type == "atkSpeedUp" then
-            AddStatus(list, "buff", "追加出手", "提高法宝额外出手概率", turns, "+" .. Percent(buff.value) .. "%")
         else
             AddStatus(list, "buff", tostring(buff.type or "增益"), "临时增益效果", turns, tostring(buff.value or ""))
         end
@@ -90,11 +88,6 @@ function StatusPresenter.BuildStatuses(state)
         AddStatus(list, "debuff", "腐毒", "每回合按最大气血受到伤害", nil, tostring(state.poisonStacks) .. "层")
     end
 
-    local shockedCount = CountTableEntries(state.shockedSlots)
-    if shockedCount > 0 then
-        AddStatus(list, "debuff", "震荡压制", string.format("%d 个法宝位伤害降低", shockedCount), nil, tostring(shockedCount))
-    end
-
     if (state.itemSilenceTurns or 0) > 0 then
         AddStatus(list, "debuff", "灾厄压制", "攻击法宝暂时无法行动", state.itemSilenceTurns, nil)
     end
@@ -107,14 +100,12 @@ function StatusPresenter.BuildPreviewStatuses()
     AddStatus(list, "buff", "护盾", "优先吸收即将受到的伤害", nil, "208")
     AddStatus(list, "buff", "法宝增伤", "提升法宝造成的伤害", 2, "+25%")
     AddStatus(list, "buff", "攻防强化", "提升法宝伤害，并降低受到的伤害", 2, "±20%")
-    AddStatus(list, "buff", "追加出手", "提高法宝额外出手概率", 3, "+30%")
     AddStatus(list, "buff", "负面免疫", "免疫怪物施加的负面状态", 2, nil)
     AddStatus(list, "buff", "免死护佑", "气血归零时触发并消耗", nil, "1次")
     AddStatus(list, "debuff", "减攻", "法宝造成的伤害降低", 2, "-25%")
     AddStatus(list, "debuff", "易伤", "受到的怪物伤害提高", 3, "+20%")
     AddStatus(list, "debuff", "法宝封印", "2 个攻击法宝暂时无法行动", nil, "2")
     AddStatus(list, "debuff", "腐毒", "每回合按最大气血受到伤害", nil, "3层")
-    AddStatus(list, "debuff", "震荡压制", "2 个法宝位伤害降低", nil, "2")
     AddStatus(list, "debuff", "灾厄压制", "攻击法宝暂时无法行动", 1, nil)
     return list
 end

@@ -219,14 +219,20 @@ function LeaderboardView.Create(callbacks)
         backgroundColor = {0, 0, 0, 0},
         borderWidth = 0,
     }
-    local scrollView = UI.ScrollView {
+    local scrollView = UI.Panel {
         width = "100%",
         flexGrow = 1,
         flexBasis = 0,
-        scrollY = true,
-        scrollX = false,
-        showScrollbar = true,
-        children = {self.listPanel},
+        children = {
+            UI.ScrollView {
+                width = "100%",
+                height = "100%",
+                scrollY = true,
+                scrollX = false,
+                showScrollbar = true,
+                children = {self.listPanel},
+            },
+        },
     }
     self.myScorePanel = UI.Panel {
         width = "100%",

@@ -20,26 +20,18 @@ local TYPE_LABELS = {
     [Config.ITEM_TYPE.TALISMAN] = "符",
 }
 
-local WEAPON_BASE_DESC = {
-    qingfeng_sword = "攻击同列最近敌人",
-    chiyan_spear = "穿透同列敌人",
-    qingyu_fan = "横扫主目标及相邻列",
-    ziqi_gourd = "攻击范围内敌人",
-    jinguang_ring = "攻击范围内敌人",
-    qingyin_qin = "横扫主目标及相邻列",
-    baigu_staff = "攻击同列最近敌人",
-    fuyao_chain = "攻击同列最近敌人",
-    zhenyao_tower = "攻击范围内敌人",
-    double_blade_chain = "横扫主目标及相邻列",
-    bishui_sword = "攻击同列最近敌人",
-    lingmo_brush = "攻击范围内敌人",
-    pozhen_spear = "穿透同列敌人",
-    taiji_sword = "攻击同列最近敌人",
-    huxin_pearl = "攻击守护范围内敌人",
-}
-
 local function Percent(value)
     return math.floor((value or 0) * 100 + 0.5)
+end
+
+local function FormatDecimal(value)
+    local text = string.format("%.2f", value or 0):gsub("0+$", "")
+    if text:sub(-1) == "." then return text .. "0" end
+    return text
+end
+
+local function PercentText(value)
+    return FormatDecimal((value or 0) * 100)
 end
 
 local function AddLine(lines, text)
@@ -102,101 +94,108 @@ local function GetEffectiveCritMultiplier(state, item)
     return multiplier
 end
 
-local function GetEffectTier(item)
-    local effect = item.specialEffect
-    if not effect then return item.quality or 1 end
-    return effect.tier or item.quality or 1
-end
-
-local function TierValue(tier, q5, q6, q7, q8, q9)
-    if tier >= 9 then return q9 end
-    if tier >= 8 then return q8 end
-    if tier >= 7 then return q7 end
-    if tier >= 6 then return q6 end
-    return q5
-end
-
-local function EffectDuration(tier)
-    return TierValue(tier, 2, 3, 3, 4, 5)
+local function HasWeaponSkill(state, skillId)
+    return state
+        and state.weaponUpgradeLevels
+        and state.weaponUpgradeLevels["weaponSkill:" .. skillId] ~= nil
 end
 
 local function BuildWeaponSummary(item, state)
-    local tier = GetEffectTier(item)
     local baseId = item.baseId
-    local parts = { WEAPON_BASE_DESC[baseId] or "攻击同列最近敌人" }
-    local critChance = GetEffectiveCritChance(state, item)
-    local critMultiplier = GetEffectiveCritMultiplier(state, item)
+    local parts = {}
 
-    if tier >= Config.SKILL_UNLOCK_TIER then
-        local turns = EffectDuration(tier)
-        if baseId == "qingfeng_sword" then
-            if tier >= 7 then
-                table.insert(parts, string.format("必定暴击×%.1f", critMultiplier))
-                table.insert(parts, tier >= 9 and "击杀时溢出穿透整列" or "击杀时溢出穿透1个敌人")
-            else
-                table.insert(parts, string.format("暴击率%d%%、暴击伤害×%.1f", Percent(critChance), critMultiplier))
-            end
-        elseif baseId == "chiyan_spear" then
-            table.insert(parts, string.format("灼烧%d%%伤害%d回合", TierValue(tier, 15, 18, 20, 25, 30), turns))
-            if tier >= 9 then
-                table.insert(parts, "命中时向全场扩散灼烧")
-            elseif tier >= 7 then
-                table.insert(parts, "命中时向相邻列同排扩散灼烧")
-            end
-        elseif baseId == "qingyu_fan" then
-            table.insert(parts, string.format("施加受击+%d%%的风刃印记%d回合", TierValue(tier, 10, 15, 15, 20, 25), turns))
-            if tier >= 7 then table.insert(parts, "溅射变为全额伤害") end
-        elseif baseId == "ziqi_gourd" then
-            table.insert(parts, string.format("中毒%d%%伤害%d回合", TierValue(tier, 15, 18, 30, 40, 50), turns))
-            if tier >= 7 then
-                table.insert(parts, string.format("中毒目标死亡时毒爆%d%%伤害", TierValue(tier, 50, 50, 50, 70, 100)))
-            end
-        elseif baseId == "jinguang_ring" then
-            table.insert(parts, string.format("削攻%d%%持续%d回合", TierValue(tier, 15, 20, 25, 30, 35), turns))
-            if tier >= 7 then table.insert(parts, string.format("扩至全场并减暴%d%%", TierValue(tier, 15, 15, 15, 20, 25))) end
-        elseif baseId == "qingyin_qin" then
-            table.insert(parts, string.format("定身%d阶段", TierValue(tier, 1, 2, 3, 4, 5)))
-            if tier >= 7 then table.insert(parts, string.format("定身期间每回合首次受击震荡%d%%伤害", TierValue(tier, 20, 20, 20, 30, 40))) end
-        elseif baseId == "baigu_staff" then
-            table.insert(parts, string.format("目标防御-%d%%持续%d回合", TierValue(tier, 15, 20, 25, 30, 45), turns))
-            if tier >= 7 then table.insert(parts, string.format("低血目标每回合损失最大生命%d%%", TierValue(tier, 5, 5, 5, 7, 10))) end
-        elseif baseId == "fuyao_chain" then
-            table.insert(parts, string.format("定身%d阶段", TierValue(tier, 1, 2, 3, 4, 5)))
-            if tier >= 7 then table.insert(parts, string.format("定身期间每回合锁魂%d%%伤害", TierValue(tier, 30, 30, 30, 40, 50))) end
-        elseif baseId == "zhenyao_tower" then
-            table.insert(parts, string.format("削攻%d%%持续%d回合", TierValue(tier, 15, 20, 25, 30, 35), turns))
-            if tier >= 7 then table.insert(parts, string.format("压制全场并造成塔威%d%%伤害", TierValue(tier, 20, 20, 20, 30, 40))) end
-        elseif baseId == "double_blade_chain" then
-            if tier == 5 then
-                table.insert(parts, "拉拽最近敌人1格")
-            else
-                table.insert(parts, string.format("拉拽并绞杀%d%%伤害%d回合", TierValue(tier, 15, 15, 25, 35, 45), turns))
-            end
-            if tier >= 7 then table.insert(parts, "拉拽距离提升至2格") end
-        elseif baseId == "bishui_sword" then
-            table.insert(parts, string.format("目标攻击-%d%%持续%d回合", TierValue(tier, 15, 20, 25, 30, 35), turns))
-            if tier >= 7 then table.insert(parts, string.format("对削攻目标伤害+%d%%", TierValue(tier, 20, 20, 20, 25, 30))) end
-        elseif baseId == "lingmo_brush" then
-            table.insert(parts, string.format("施加受击+%d%%的易伤标记%d回合", TierValue(tier, 10, 15, 20, 25, 30), turns))
-            if tier >= 7 then table.insert(parts, string.format("全场易伤并造成墨蚀%d%%伤害", TierValue(tier, 15, 15, 15, 20, 25))) end
-        elseif baseId == "pozhen_spear" then
-            table.insert(parts, string.format("本武器命中无视%d%%防御", Percent(item.defIgnore or 0)))
-            if tier >= 7 then table.insert(parts, string.format("穿透整列并施加受击+%d%%", TierValue(tier, 15, 15, 15, 20, 25))) end
-        elseif baseId == "taiji_sword" then
-            local damageBonus = TierValue(tier, 0, 10, 15, 20, 25)
-            if damageBonus > 0 then
-                table.insert(parts, string.format("击退目标1格并伤害+%d%%", damageBonus))
-            else
-                table.insert(parts, "击退目标1格")
-            end
-            if tier >= 7 then table.insert(parts, string.format("击退2格并落地定身%d阶段", tier >= 9 and 2 or 1)) end
-        elseif baseId == "huxin_pearl" then
-            table.insert(parts, string.format("削攻%d%%持续%d回合", TierValue(tier, 15, 20, 25, 30, 35), turns))
-            if tier >= 7 then table.insert(parts, string.format("压制全场、减暴%d%%并造成莲华%d%%伤害", TierValue(tier, 15, 15, 15, 20, 25), TierValue(tier, 20, 20, 20, 30, 40))) end
+    if baseId == "qingfeng_sword" then
+        local threshold = math.max(0, (item.highHpThreshold or 0.80) - (HasWeaponSkill(state, "qingfeng_huali") and 0.15 or 0))
+        local bonus = (item.highHpBonusPct or 0.20) * (HasWeaponSkill(state, "sword_edge_exposed") and 1.20 or 1)
+        AddLine(parts, "攻击同列最近敌人")
+        AddLine(parts, string.format("目标攻击前生命高于%d%%时，额外造成%d%%武器伤害", Percent(threshold), Percent(bonus)))
+    elseif baseId == "chiyan_spear" then
+        AddLine(parts, "攻击同列最近敌人，并施加1层灼烧")
+        AddLine(parts, string.format("每层灼烧持续3回合，每回合造成%d%%武器伤害，最多5层", Percent(item.burnDamagePct or 0.05)))
+        if (item.extraBurnChance or 0) > 0 then
+            AddLine(parts, string.format("每次命中有%d%%概率额外施加1层灼烧", Percent(item.extraBurnChance)))
         end
+    elseif baseId == "qingyu_fan" then
+        AddLine(parts, "攻击同列最近敌人")
+        AddLine(parts, string.format("同时溅射%d个最近敌人，每个造成%d%%武器伤害", item.splashCount or 1, Percent(item.splashRatio or 0.20)))
+    elseif baseId == "ziqi_gourd" then
+        AddLine(parts, "攻击同列最近敌人")
+        AddLine(parts, string.format("每次攻击有%d%%概率回复相当于%d%%武器伤害的气血，最低回复1点", Percent(item.healChance or 0.08), Percent(item.healDamagePct or 0.01)))
+        if (item.doubleDamageChance or 0) > 0 then
+            AddLine(parts, string.format("触发回血时，另有%d%%概率使本次攻击造成双倍伤害", Percent(item.doubleDamageChance)))
+        end
+    elseif baseId == "jinguang_ring" then
+        AddLine(parts, "攻击同列最近敌人")
+        AddLine(parts, string.format("每次攻击有%d%%概率将普通敌人击退1格；精英有50%%概率抵抗，头目免疫", Percent(item.knockbackChance or 0.10)))
+        if (item.collisionDamagePct or 0) > 0 then
+            AddLine(parts, string.format("击退路线被敌人阻挡时，对阻挡者额外造成%d%%武器伤害", Percent(item.collisionDamagePct)))
+        end
+    elseif baseId == "qingyin_qin" then
+        AddLine(parts, "攻击同列最近敌人")
+        AddLine(parts, string.format("每次攻击有%d%%概率定身1回合，成功后目标进入%d回合定身免疫", Percent(item.rootChance or 0.20), item.rootCooldown or 4))
+    elseif baseId == "baigu_staff" then
+        local bonus = item.defenseDownBonus or 0
+        AddLine(parts, "攻击同列最近敌人")
+        AddLine(parts, string.format("根据目标攻击前生命比例降低%d%%～%d%%防御，目标生命越高削防越强，持续2回合", Percent(0.10 + bonus), Percent(0.20 + bonus)))
+        if (item.defenseDownDamagePct or 0) > 0 then
+            AddLine(parts, string.format("攻击已被削防的目标时，武器伤害提高%d%%", Percent(item.defenseDownDamagePct)))
+        end
+    elseif baseId == "fuyao_chain" then
+        AddLine(parts, "攻击同列最近敌人")
+        AddLine(parts, string.format("基础暴击率%d%%，暴击伤害×%.2f", Percent(item.crit or 0.25), item.critMultiplier or 2.0))
+        if (item.chainCritStep or 0) > 0 then
+            AddLine(parts, string.format("每次连续暴击使下一次暴击伤害提高%d个百分点，未暴击时重置", Percent(item.chainCritStep)))
+        end
+    elseif baseId == "zhenyao_tower" then
+        AddLine(parts, "攻击同列最近敌人")
+        AddLine(parts, string.format("每次攻击还会对全场所有存活敌人造成%s%%武器伤害", PercentText(item.globalDamagePct or 0.025)))
+        if (item.doubleCastChance or 0) > 0 then
+            AddLine(parts, string.format("全场伤害有%d%%概率额外结算1次", Percent(item.doubleCastChance)))
+        end
+    elseif baseId == "double_blade_chain" then
+        AddLine(parts, "攻击同列最近敌人")
+        AddLine(parts, string.format("每次攻击分为2段，每段造成%d%%武器伤害，并独立判定暴击", Percent(item.segmentDamagePct or 0.45)))
+        if (item.tripleChance or 0) > 0 then
+            AddLine(parts, string.format("每次攻击有%d%%概率追加第3段攻击", Percent(item.tripleChance)))
+        end
+    elseif baseId == "bishui_sword" then
+        AddLine(parts, "攻击同列最近敌人，攻击必定暴击")
+        AddLine(parts, string.format("当前基础暴击伤害×%.2f", item.critMultiplier or 1.15))
+        if (item.weaponDamagePct or 0) > 0 then
+            AddLine(parts, string.format("武器伤害额外提高%d%%", Percent(item.weaponDamagePct)))
+        end
+        if (item.maxHpDamagePct or 0) > 0 then
+            AddLine(parts, string.format("额外造成目标最大生命%d%%的伤害，最多不超过70%%武器伤害", Percent(item.maxHpDamagePct)))
+        end
+    elseif baseId == "lingmo_brush" then
+        AddLine(parts, "攻击同列最近敌人")
+        AddLine(parts, string.format("玩家生命不高于30%%时，武器伤害提高%d%%", Percent(item.lowPlayerDamagePct or 0.20)))
+        if (item.lowPlayerLayerPct or 0) > 0 then
+            AddLine(parts, string.format("生命低于30%%后，每再损失5%%最大生命，伤害再提高%d个百分点", Percent(item.lowPlayerLayerPct)))
+        end
+    elseif baseId == "pozhen_spear" then
+        AddLine(parts, string.format("攻击同列最近敌人，并无视目标%d%%防御", Percent(item.defIgnore or 1.0)))
+        if (item.baseDefenseDamagePct or 0) > 0 then
+            AddLine(parts, string.format("额外造成相当于目标原始防御%d%%的伤害", Percent(item.baseDefenseDamagePct)))
+        end
+        if (item.weaponDamagePct or 0) > 0 then
+            AddLine(parts, string.format("武器伤害额外提高%d%%", Percent(item.weaponDamagePct)))
+        end
+    elseif baseId == "taiji_sword" then
+        local bonus = (item.lowHpBonusPct or 0.15) * (HasWeaponSkill(state, "sword_edge_exposed") and 1.20 or 1)
+        AddLine(parts, "攻击同列最近敌人")
+        AddLine(parts, string.format("目标攻击前生命低于%d%%时，额外造成%d%%武器伤害", Percent(item.lowHpThreshold or 0.20), Percent(bonus)))
+    elseif baseId == "huxin_pearl" then
+        AddLine(parts, "攻击同列最近敌人")
+        AddLine(parts, string.format("降低目标%d%%攻击力，持续2回合，并额外造成等同本次削减攻击力的伤害", Percent(item.attackDownPct or 0.10)))
+        if (item.blindChance or 0) > 0 then
+            AddLine(parts, string.format("每次攻击有%d%%概率致盲目标2回合；精英有50%%概率抵抗，头目免疫", Percent(item.blindChance)))
+        end
+    else
+        AddLine(parts, "攻击同列最近敌人")
     end
 
-    return table.concat(parts, "，") .. "。"
+    return table.concat(parts, "；") .. "。"
 end
 
 local function BuildWeaponDesc(item, state)
@@ -209,11 +208,7 @@ local function BuildWeaponDesc(item, state)
     AddLine(lines, string.format("暴击率：%d%%", Percent(crit)))
     AddLine(lines, string.format("暴击伤害：×%.1f", critMultiplier))
     AddLine(lines, string.format("额外攻击力：%d", extraAttackPower))
-    local extraAttackChance = math.max(0, (item.atkSpeed or 1.0) - 1.0)
-    if extraAttackChance > 0 then
-        AddLine(lines, string.format("追加出手：%d%%", Percent(extraAttackChance)))
-    end
-    AddLine(lines, "描述：" .. BuildWeaponSummary(item, state))
+    AddLine(lines, "详细效果：" .. BuildWeaponSummary(item, state))
     AddDecomposeLine(lines, item)
     return JoinLines(lines)
 end
@@ -275,11 +270,7 @@ local function BuildPillEffectDesc(effect)
         end
         return text .. "。"
     elseif effect.type == "attackBuff" then
-        local text = string.format("法宝伤害提升%d%%", Percent(effect.value))
-        if (effect.speedValue or 0) > 0 then
-            text = text .. string.format("，追加出手提升%d%%", Percent(effect.speedValue))
-        end
-        return string.format("%s，持续%d回合。", text, effect.duration or 0)
+        return string.format("法宝伤害提升%d%%，持续%d回合。", Percent(effect.value), effect.duration or 0)
     elseif effect.type == "deathSave" then
         return string.format("获得一次免死护佑，触发时保留%d%%气血。", Percent(effect.value))
     end
@@ -665,11 +656,26 @@ function InfoPanelView:ShowMonster(monster)
     if monster.enraged then
         AddLine(states, "狂暴: 攻击+75% / 防御+60%")
     end
-    if (monster.rootTurns or 0) > 0 then AddLine(states, string.format("定身%d", monster.rootTurns)) end
+    if (monster.rootTurns or 0) > 0 then AddLine(states, string.format("定身%d回合", monster.rootTurns)) end
+    if (monster.blindTurns or 0) > 0 then AddLine(states, string.format("致盲%d回合", monster.blindTurns)) end
+    if (monster.qinImmuneTurns or 0) > 0 then AddLine(states, string.format("清音定身免疫%d回合", monster.qinImmuneTurns)) end
+    if (monster.qinChanceBonus or 0) > 0 then AddLine(states, string.format("渐入清音+%d%%", Percent(monster.qinChanceBonus))) end
     if (monster.stealthTurns or 0) > 0 then AddLine(states, string.format("隐身%d", monster.stealthTurns)) end
-    if (monster.tauntTurns or 0) > 0 then AddLine(states, string.format("嘲讽%d", monster.tauntTurns)) end
-    if (monster.defenseDownTurns or 0) > 0 then AddLine(states, string.format("破甲%d%%", Percent(monster.defenseDown))) end
-    if (monster.attackDownTurns or 0) > 0 then AddLine(states, string.format("削攻%d%%", Percent(monster.attackDown))) end
+    if (monster.defenseDownTurns or 0) > 0 then AddLine(states, string.format("破甲%d%%·%d回合", Percent(monster.defenseDown), monster.defenseDownTurns)) end
+    if (monster.attackDownTurns or 0) > 0 then AddLine(states, string.format("削攻%d%%·%d回合", Percent(monster.attackDown), monster.attackDownTurns)) end
+    if (monster.formationMarkTurns or 0) > 0 then AddLine(states, string.format("破阵印%d回合", monster.formationMarkTurns)) end
+    if (monster.towerSealHits or 0) > 0 then AddLine(states, string.format("镇妖封印%d/5", monster.towerSealHits)) end
+    if monster.burnInstances and #monster.burnInstances > 0 then
+        local total = 0
+        for index, burn in ipairs(monster.burnInstances) do
+            local current = math.floor((burn.currentDamage or 0) + 0.5)
+            total = total + current
+            AddLine(states, string.format("灼烧%d: 初始%d/当前%d/%d回合", index, math.floor((burn.initialDamage or 0) + 0.5), current, burn.turns or 0))
+        end
+        AddLine(states, string.format("灼烧本次合计%d", total))
+    end
+    if monster.tier == Config.MONSTER_TIER.ELITE then AddLine(states, "控制抗性: 50%躲避硬控") end
+    if monster.tier == Config.MONSTER_TIER.BOSS then AddLine(states, "控制抗性: 免疫硬控") end
     if (monster.critChanceDownTurns or 0) > 0 then AddLine(states, string.format("减暴%d%%", Percent(monster.critChanceDown))) end
     if (monster.vulnerableTurns or 0) > 0 then AddLine(states, string.format("易伤%d%%", Percent(monster.vulnerable))) end
     if (monster.dotTurns or 0) > 0 and (monster.dotDamage or 0) > 0 then AddLine(states, string.format("持续伤害%d×%d", monster.dotDamage, monster.dotTurns)) end

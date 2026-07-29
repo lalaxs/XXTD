@@ -6,6 +6,8 @@ local Stats = require("combat.Stats")
 local GameEvents = require("GameEvents")
 local VisualEventQueue = require("events.VisualEventQueue")
 local DailyChallenge = require("DailyChallenge")
+local DefenseDown = require("combat.DefenseDown")
+local EnemyDamage = require("combat.EnemyDamage")
 
 local MonsterSystem = {}
 
@@ -84,19 +86,7 @@ end
 local function ApplySurvivalSkill(stateOrMonster, maybeMonster)
     local state = maybeMonster and stateOrMonster or nil
     local monster = maybeMonster or stateOrMonster
-    local skill = monster.skill
-    if not skill or skill.id ~= "holy_revival" or monster.revivalTriggered then return end
-
-    local threshold = skill.hpThreshold or 0.35
-    if monster.hp <= monster.maxHp * threshold then
-        local heal = math.floor(monster.maxHp * (skill.healPercent or 0.35))
-        monster.hp = math.min(monster.maxHp, math.max(monster.hp, 0) + heal)
-        monster.revivalTriggered = true
-        if state then
-            GameEvents.AddMonsterStatus(state, monster, "复苏", "buff")
-        end
-        print(string.format("  [Skill] %s 触发圣躯复苏，恢复%d", monster.name, heal))
-    end
+    return EnemyDamage.ApplySurvival(state, monster)
 end
 
 local function ShouldSkipMovement(state, monster)
@@ -122,29 +112,6 @@ local function ShouldSkipMovement(state, monster)
 
     monster.plannedSkipMovement = nil
     return false
-end
-
-local function ApplyShockField(state, monster)
-    local skill = monster.skill or {}
-    state.shockedSlots = state.shockedSlots or {}
-    state.shockedSlotReduction = state.shockedSlotReduction or {}
-
-    local duration = TurnsFromSeconds(skill.effectDuration or 1.5) + 1
-    local reduction = skill.atkSpeedReduction or 0.18
-    local affected = 0
-    for slotIdx = 1, Config.TOTAL_SLOTS do
-        local slotCol = ((slotIdx - 1) % Config.GRID_COLS) + 1
-        if math.abs(slotCol - monster.col) <= 1 then
-            state.shockedSlots[slotIdx] = math.max(state.shockedSlots[slotIdx] or 0, duration)
-            state.shockedSlotReduction[slotIdx] = math.max(state.shockedSlotReduction[slotIdx] or 0, reduction)
-            affected = affected + 1
-        end
-    end
-
-    print(string.format("  [Skill] %s 释放震荡领域，压制%d个法宝位", monster.name, affected))
-    if affected > 0 then
-        GameEvents.AddPlayerStatus(state, "震荡压制", "debuff")
-    end
 end
 
 local function ApplyMovementSkill(state, monster, moved)
@@ -174,21 +141,6 @@ local function ApplyMovementSkill(state, monster, moved)
             state.itemSilenceTurns = math.max(state.itemSilenceTurns or 0, TurnsFromSeconds(skill.silenceDuration or 1.0))
             GameEvents.AddPlayerStatus(state, "灾厄压制", "debuff")
             print(string.format("  [Skill] %s 释放灾厄脉冲，压制法宝%d回合", monster.name, state.itemSilenceTurns))
-        end
-    end
-
-    if skill.id == "war_cry" and not monster.skillTriggered and monster.row >= (skill.triggerRow or Config.FIELD_ROWS - 1) then
-        monster.skillTriggered = true
-        monster.tauntTurns = math.max(monster.tauntTurns or 0, TurnsFromSeconds(skill.tauntDuration or 2.0) + 1)
-        monster.tauntRange = skill.tauntRange or 2
-        GameEvents.AddMonsterStatus(state, monster, "嘲讽", "buff")
-        print(string.format("  [Skill] %s 发动战吼嘲讽", monster.name))
-    elseif skill.id == "shock_field" then
-        monster.shockCounter = (monster.shockCounter or 0) + 1
-        local cooldown = TurnsFromSeconds(skill.cooldown or 3.0)
-        if monster.shockCounter >= cooldown then
-            monster.shockCounter = 0
-            ApplyShockField(state, monster)
         end
     end
 
@@ -436,7 +388,42 @@ local function ApplyAttackSkill(state, monster, baseDamage)
     return extraDamage
 end
 
+local function ApplyBlindBacklashDamage(state, monster)
+    local raw = math.max(1, math.floor((monster.blindWeaponDamage or 0) * 0.40))
+    local hpDamage, _, shieldAbsorbed = EnemyDamage.Apply(
+        state,
+        monster.blindWeaponItem,
+        monster,
+        raw,
+        {
+            weaponId = "huxin_pearl",
+            skillId = "pearl_blindness",
+            visualVariant = "skill",
+        }
+    )
+    return hpDamage, shieldAbsorbed
+end
+
+local function ApplyBlindBacklash(state, monster)
+    if (monster.blindTurns or 0) <= 0 then return false end
+    if monster.blindBacklashTurn == state.turn then return true end
+    monster.blindBacklashTurn = state.turn
+    if monster.pearlBlindness and monster.blindWeaponDamage and monster.blindWeaponItem then
+        local damage, shieldAbsorbed = ApplyBlindBacklashDamage(state, monster)
+        print(string.format("  [Weapon Skill] 目无所见反噬%s %d%s", monster.name, damage, shieldAbsorbed > 0 and string.format("（护盾吸收%d）", shieldAbsorbed) or ""))
+    end
+    return true
+end
+
 local function AttackWithMonster(state, monster, label)
+    if (monster.rootTurns or 0) > 0 then
+        print(string.format("  [Control] %s 被定身，无法攻击", monster.name))
+        return 0
+    end
+    if ApplyBlindBacklash(state, monster) then
+        print(string.format("  [Control] %s 致盲攻击落空", monster.name))
+        return 0
+    end
     local damage, didCrit = CalculateMonsterAttackDamage(state, monster)
     AddMonsterAttackEvent(state, monster, damage, nil, didCrit)
     local extraDamage = ApplyAttackSkill(state, monster, damage)
@@ -741,20 +728,8 @@ local function TickStatus(monster, turnsField, valueField)
     end
 end
 
-local function TickSlotEffects(state)
-    if state.shockedSlots then
-        for slotIdx, turns in pairs(state.shockedSlots) do
-            turns = turns - 1
-            if turns > 0 then
-                state.shockedSlots[slotIdx] = turns
-            else
-                state.shockedSlots[slotIdx] = nil
-                if state.shockedSlotReduction then
-                    state.shockedSlotReduction[slotIdx] = nil
-                end
-            end
-        end
-    end
+local function TickDefenseDown(monster)
+    DefenseDown.Tick(monster)
 end
 
 local function TickPlayerDebuffs(state)
@@ -809,6 +784,30 @@ local function TickPoisonExplosionMark(monster)
     end
 end
 
+local function TickBurnInstances(state, monster)
+    local instances = monster.burnInstances
+    if not instances or #instances == 0 or monster.hp <= 0 then return end
+    local kept, total = {}, 0
+    for _, burn in ipairs(instances) do
+        if (burn.turns or 0) > 0 then
+            total = total + math.floor((burn.currentDamage or 0) + 0.5)
+            burn.currentDamage = (burn.currentDamage or 0) * 0.5
+            burn.turns = burn.turns - 1
+            if burn.turns > 0 then table.insert(kept, burn) end
+        end
+    end
+    monster.burnInstances = kept
+    if total > 0 then
+        monster.hp = monster.hp - total
+        monster.lastDamageWeaponId = "chiyan_spear"
+        monster.lastDamageSkillId = "burn"
+        local event = { col = monster.col, row = monster.row, dmg = total, target = monster, skillId = "burn" }
+        table.insert(state.lastDamageDealt, event)
+        VisualEventQueue.PushDamageDealt(state, event)
+        print(string.format("  [Burn] %s %d层灼烧造成%d", monster.name, #instances, total))
+    end
+end
+
 local function TickMonsterDot(state, monster)
     local turns = monster.dotTurns or 0
     local damage = monster.dotDamage or 0
@@ -836,20 +835,22 @@ end
 
 function MonsterSystem.TickStatuses(state)
     for _, monster in ipairs(state.monsters) do
+        TickBurnInstances(state, monster)
         TickMonsterDot(state, monster)
         TickRootShock(monster)
         TickPoisonExplosionMark(monster)
         TickStatus(monster, "rootTurns", nil)
-        TickStatus(monster, "defenseDownTurns", "defenseDown")
+        TickDefenseDown(monster)
         TickStatus(monster, "attackDownTurns", "attackDown")
         TickStatus(monster, "critChanceDownTurns", "critChanceDown")
         TickStatus(monster, "vulnerableTurns", "vulnerable")
         TickStatus(monster, "stealthTurns", nil)
-        TickStatus(monster, "tauntTurns", nil)
+        TickStatus(monster, "blindTurns", nil)
+        TickStatus(monster, "qinImmuneTurns", nil)
+        TickStatus(monster, "formationMarkTurns", nil)
         ApplySurvivalSkill(state, monster)
     end
     TickPlayerDebuffs(state)
-    TickSlotEffects(state)
 end
 
 function MonsterSystem.ApplyArmorTurnEffects(state)

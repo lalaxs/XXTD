@@ -205,15 +205,21 @@ function DailyChallengeView.Create(callbacks)
                         fontColor = COLORS.title,
                         marginTop = 2,
                     },
-                    UI.ScrollView {
+                    UI.Panel {
                         width = "100%",
                         flexGrow = 1,
                         flexBasis = 0,
                         flexShrink = 1,
-                        scrollY = true,
-                        scrollX = false,
-                        showScrollbar = true,
-                        children = {self.tagList},
+                        children = {
+                            UI.ScrollView {
+                                width = "100%",
+                                height = "100%",
+                                scrollY = true,
+                                scrollX = false,
+                                showScrollbar = true,
+                                children = {self.tagList},
+                            },
+                        },
                     },
                     UI.Panel {
                         width = "100%",

@@ -34,7 +34,6 @@ local EXTRA_DEF_FIELDS = {
     "coefficient",
     "tendency",
     "signature",
-    "pierceCount",
     "splashRatio",
     "areaPattern",
     "specialEffect",
@@ -44,6 +43,34 @@ local EXTRA_DEF_FIELDS = {
     "targetCount",
     "defense",
     "critMultiplier",
+    "weaponDamagePct",
+    "highHpThreshold",
+    "highHpBonusPct",
+    "lowHpThreshold",
+    "lowHpBonusPct",
+    "maxHpDamagePct",
+    "splashCount",
+    "chainCritStep",
+    "lowPlayerDamagePct",
+    "lowPlayerLayerPct",
+    "attackDownPct",
+    "blindChance",
+    "defenseDownBonus",
+    "defenseDownDamagePct",
+    "rootChance",
+    "rootCooldown",
+    "globalDamagePct",
+    "doubleCastChance",
+    "healChance",
+    "healDamagePct",
+    "doubleDamageChance",
+    "baseDefenseDamagePct",
+    "knockbackChance",
+    "collisionDamagePct",
+    "burnDamagePct",
+    "extraBurnChance",
+    "segmentDamagePct",
+    "tripleChance",
 }
 
 local function CopyDefinitionFields(item, data)
@@ -52,6 +79,64 @@ local function CopyDefinitionFields(item, data)
             item[field] = data[field]
         end
     end
+end
+
+local function AssignCombatInstanceId(state, item)
+    if item and item.itemType == Config.ITEM_TYPE.ATTACK then
+        state.nextWeaponCombatInstanceId = (state.nextWeaponCombatInstanceId or 0) + 1
+        item.combatInstanceId = state.nextWeaponCombatInstanceId
+        state.weaponCombatState = state.weaponCombatState or {}
+        state.weaponCombatState[item.combatInstanceId] = {}
+    end
+    return item
+end
+
+local function BuildItemFromDefinition(state, def)
+    local data = def.data
+    local item = {
+        id = def.id,
+        baseId = def.baseId or data.baseId,
+        itemType = def.itemType,
+        category = def.category,
+        quality = def.quality,
+    }
+
+    if item.itemType == Config.ITEM_TYPE.ATTACK then
+        item.name = data.name
+        item.atk = data.atk
+        item.crit = data.crit or 0
+        item.defIgnore = data.defIgnore or 0
+    elseif item.itemType == Config.ITEM_TYPE.DEFENSE then
+        item.name = data.name
+        item.defense = data.defense or data.power or 0
+    elseif item.itemType == Config.ITEM_TYPE.PILL then
+        item.name = data.name
+        item.healPerSec = data.healPerSec or 0
+        item.duration = data.duration or 5
+        item.teamAtkBonus = data.teamAtkBonus or 0
+        item.globalHealAura = data.globalHealAura or false
+        item.buff = "heal"
+        item.value = data.healPerSec or 0
+        item.buffActive = true
+    elseif item.itemType == Config.ITEM_TYPE.TALISMAN then
+        item.name = data.name
+        item.aoeDmg = data.aoeDmg or 0
+        item.aoeRange = data.aoeRange or 3
+        item.controlType = data.controlType or "none"
+        item.controlDuration = data.controlDuration or 0
+        item.atk = data.aoeDmg
+        item.crit = 0
+    else
+        error("Unknown item type: " .. tostring(item.itemType))
+    end
+
+    CopyDefinitionFields(item, data)
+    return AssignCombatInstanceId(state, item)
+end
+
+local function ReleaseCombatInstance(state, item)
+    if not item or not item.combatInstanceId or not state.weaponCombatState then return end
+    state.weaponCombatState[item.combatInstanceId] = nil
 end
 
 function ItemSystem.GetCategory(item)
@@ -171,49 +256,7 @@ function ItemSystem.CreateItem(state, itemType, quality)
     local category = ItemPoolService.GetCategoryByItemType(itemType)
     local def = ItemPoolService.RollDefinition(category, quality, state)
     assert(def, "Missing item pool config")
-
-    local data = def.data
-    local item = {
-        id = def.id,
-        baseId = def.baseId or data.baseId,
-        itemType = def.itemType,
-        category = def.category,
-        quality = def.quality,
-    }
-
-    if item.itemType == Config.ITEM_TYPE.ATTACK then
-        item.name = data.name
-        item.atk = data.atk
-        item.crit = data.crit or 0
-        item.atkSpeed = data.atkSpeed or 1.0
-        item.defIgnore = data.defIgnore or 0
-    elseif item.itemType == Config.ITEM_TYPE.DEFENSE then
-        item.name = data.name
-        item.defense = data.defense or data.power or 0
-    elseif item.itemType == Config.ITEM_TYPE.PILL then
-        item.name = data.name
-        item.healPerSec = data.healPerSec or 0
-        item.duration = data.duration or 5
-        item.teamAtkBonus = data.teamAtkBonus or 0
-        item.teamAtkSpeedBonus = data.teamAtkSpeedBonus or 0
-        item.globalHealAura = data.globalHealAura or false
-        item.buff = "heal"
-        item.value = data.healPerSec or 0
-        item.buffActive = true
-    elseif item.itemType == Config.ITEM_TYPE.TALISMAN then
-        item.name = data.name
-        item.aoeDmg = data.aoeDmg or 0
-        item.aoeRange = data.aoeRange or 3
-        item.controlType = data.controlType or "none"
-        item.controlDuration = data.controlDuration or 0
-        item.atk = data.aoeDmg
-        item.crit = 0
-    else
-        error("Unknown item type: " .. tostring(item.itemType))
-    end
-
-    CopyDefinitionFields(item, data)
-    return item
+    return BuildItemFromDefinition(state, def)
 end
 
 function ItemSystem.CreateItemByCategory(state, category, quality)
@@ -226,57 +269,7 @@ function ItemSystem.CreateItemByBaseId(state, category, baseId, quality)
     quality = ClampQuality(quality)
     local def = ItemPoolService.GetDefinitionByBaseId(category, quality, baseId, state, { ignoreWeaponUnlock = true })
     assert(def, "Missing item definition: " .. tostring(category) .. ":" .. tostring(baseId))
-
-    local itemType = ItemPoolService.GetItemTypeByCategory(category)
-    assert(itemType, "Unknown item category: " .. tostring(category))
-
-    local data = def.data
-    local item = ItemSystem.CreateItem(state, itemType, quality)
-    if item.baseId == baseId then
-        return item
-    end
-
-    item = {
-        id = def.id,
-        baseId = def.baseId or data.baseId,
-        itemType = def.itemType,
-        category = def.category,
-        quality = def.quality,
-    }
-
-    if item.itemType == Config.ITEM_TYPE.ATTACK then
-        item.name = data.name
-        item.atk = data.atk
-        item.crit = data.crit or 0
-        item.atkSpeed = data.atkSpeed or 1.0
-        item.defIgnore = data.defIgnore or 0
-    elseif item.itemType == Config.ITEM_TYPE.DEFENSE then
-        item.name = data.name
-        item.defense = data.defense or data.power or 0
-    elseif item.itemType == Config.ITEM_TYPE.PILL then
-        item.name = data.name
-        item.healPerSec = data.healPerSec or 0
-        item.duration = data.duration or 5
-        item.teamAtkBonus = data.teamAtkBonus or 0
-        item.teamAtkSpeedBonus = data.teamAtkSpeedBonus or 0
-        item.globalHealAura = data.globalHealAura or false
-        item.buff = "heal"
-        item.value = data.healPerSec or 0
-        item.buffActive = true
-    elseif item.itemType == Config.ITEM_TYPE.TALISMAN then
-        item.name = data.name
-        item.aoeDmg = data.aoeDmg or 0
-        item.aoeRange = data.aoeRange or 3
-        item.controlType = data.controlType or "none"
-        item.controlDuration = data.controlDuration or 0
-        item.atk = data.aoeDmg
-        item.crit = 0
-    else
-        error("Unknown item type: " .. tostring(item.itemType))
-    end
-
-    CopyDefinitionFields(item, data)
-    return item
+    return BuildItemFromDefinition(state, def)
 end
 
 function ItemSystem.TryMerge(state, fromSlot, toSlot)
@@ -291,6 +284,8 @@ function ItemSystem.TryMerge(state, fromSlot, toSlot)
 
     state.slots[toSlot] = newItem
     state.slots[fromSlot] = nil
+    ReleaseCombatInstance(state, itemA)
+    ReleaseCombatInstance(state, itemB)
 
 
     print(string.format("[Merge] %s + %s → %s (%s)",
@@ -305,6 +300,7 @@ function ItemSystem.DecomposeItem(state, slotIdx)
     local expGain = Config.DECOMPOSE_EXP[item.quality] or 2
     RealmSystem.AddExp(state, expGain, { deferCheck = true })
     state.slots[slotIdx] = nil
+    ReleaseCombatInstance(state, item)
 
     print(string.format("[Decompose] 分解 %s → +%d修为", item.name, expGain))
     return true

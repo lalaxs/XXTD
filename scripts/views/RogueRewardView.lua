@@ -29,6 +29,7 @@ local CATEGORY_COLOR = {
     ["专属"] = COLORS.red,
     ["进阶"] = COLORS.red,
     ["通用"] = COLORS.blue,
+    ["敌方强化"] = COLORS.purple,
     ["守势"] = COLORS.blue,
     ["续航"] = COLORS.green,
     ["控场"] = COLORS.purple,
@@ -53,13 +54,7 @@ local function HardShadow(color)
 end
 
 local function GetDisplayCategory(reward)
-    if reward.kind == "unlock" or reward.kind == "unlockArmor" then
-        return "解锁"
-    end
-    if reward.kind == "common" then
-        return "通用"
-    end
-    return "进阶"
+    return reward.category or "机缘"
 end
 
 local function CreateCategoryBadge(text, color)
@@ -85,8 +80,8 @@ end
 
 local function CreateRewardIcon(reward, color)
     return UI.Panel {
-        width = 58,
-        height = 58,
+        width = 76,
+        height = 76,
         alignSelf = "center",
         backgroundImage = reward.icon or false,
         backgroundFit = "contain",
@@ -106,28 +101,6 @@ local function CreateRewardIcon(reward, color)
     }
 end
 
-local function CreateLearnButton()
-    return UI.Panel {
-        width = "100%",
-        height = 28,
-        backgroundColor = COLORS.cardDark,
-        borderRadius = 8,
-        borderWidth = 1,
-        borderColor = COLORS.border,
-        alignItems = "center",
-        justifyContent = "center",
-        flexShrink = 0,
-        children = {
-            UI.Label {
-                text = "点击参悟",
-                fontSize = 12,
-                fontWeight = "bold",
-                fontColor = COLORS.gold,
-            },
-        },
-    }
-end
-
 local function CreateRewardCard(reward, onSelect)
     local displayCategory = GetDisplayCategory(reward)
     local color = CATEGORY_COLOR[displayCategory] or COLORS.gold
@@ -136,9 +109,9 @@ local function CreateRewardCard(reward, onSelect)
         flexGrow = 1,
         flexShrink = 1,
         flexBasis = 0,
-        minHeight = 330,
-        padding = 10,
-        gap = 7,
+        height = 330,
+        padding = 12,
+        gap = 8,
         backgroundColor = COLORS.card,
         borderRadius = 14,
         borderWidth = 3,
@@ -179,18 +152,17 @@ local function CreateRewardCard(reward, onSelect)
                 backgroundColor = WithAlpha(color, 150),
             },
             UI.Label {
-                text = reward.abilityDesc or reward.desc,
+                text = reward.cardDesc or reward.abilityDesc or reward.desc,
                 width = "100%",
                 flexGrow = 1,
                 flexShrink = 1,
-                fontSize = 13,
-                lineHeight = 1.3,
+                fontSize = 12,
+                lineHeight = 1.25,
                 fontColor = COLORS.text,
                 whiteSpace = "normal",
                 wordBreak = "break-word",
-                maxLines = 7,
+                textAlign = "left",
             },
-            CreateLearnButton(),
         },
     }
 end
@@ -224,7 +196,7 @@ function RogueRewardView.Create(onSelect)
         width = "100%",
         flexDirection = "row",
         alignItems = "stretch",
-        gap = 10,
+        gap = 12,
     }
 
     self.root = UI.Panel {
@@ -242,10 +214,10 @@ function RogueRewardView.Create(onSelect)
         children = {
             UI.Panel {
                 width = "94%",
-                height = 560,
-                top = -55,
+                height = 500,
+                top = -45,
                 maxWidth = 940,
-                minHeight = 520,
+                minHeight = 470,
                 padding = 14,
                 gap = 10,
                 backgroundColor = COLORS.panel,
@@ -288,13 +260,13 @@ function RogueRewardView:Show(event, choices, stage)
 
     local realmName = event and event.realmName or "新境界"
     local stageInfo = {
-        attack = { title = "攻击法宝", subtitle = "选择一项攻击法宝机缘" },
-        armor = { title = "防御法宝", subtitle = "选择一项防御法宝机缘" },
-        enemy = { title = "敌方强化", subtitle = "选择一项敌方强化" },
+        attack = { prefix = "突破至", title = "攻击法宝", subtitle = "选择一项攻击法宝机缘", suffix = "，完成三次选择后继续修行。" },
+        armor = { prefix = "突破至", title = "防御法宝", subtitle = "选择一项防御法宝机缘", suffix = "，完成三次选择后继续修行。" },
+        enemy = { prefix = "突破至", title = "敌方强化", subtitle = "选择一项敌方强化", suffix = "，完成三次选择后继续修行。" },
     }
     local currentStage = stageInfo[stage] or stageInfo.attack
-    self.title:SetText("突破至" .. realmName .. " · " .. currentStage.title)
-    self.subtitle:SetText(currentStage.subtitle .. "，完成三次选择后继续修行。")
+    self.title:SetText(currentStage.prefix .. realmName .. " · " .. currentStage.title)
+    self.subtitle:SetText(currentStage.subtitle .. currentStage.suffix)
 
     for _, reward in ipairs(choices or {}) do
         self.choicesPanel:AddChild(CreateRewardCard(reward, self.onSelect))
