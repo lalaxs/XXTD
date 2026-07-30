@@ -58,6 +58,8 @@ function BoardLayout.CalcMetrics(panelW, panelH)
         decomposeArea = { x = 28, y = 2058, w = 376, h = 148 },
         decomposeIcon = { x = 142, y = 2038, w = 128, h = 136 },
         storage = { x = 430, y = 2115, w = 220, h = 82 },
+        storageSlot = { x = 430, y = 2065, w = 220, h = 132 },
+        decomposeDrop = { x = 28, y = 2010, w = 376, h = 197 },
         menu = { x = 887, y = 2058, w = 118, h = 118 },
     }
 end

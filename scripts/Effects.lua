@@ -6,6 +6,9 @@ local Effects = {}
 local attackEffects_ = {}
 local mergeEffects_ = {}
 local coinEffects_ = {}
+local pendingCoinCredit_ = 0
+local coinTargetAmount_ = nil
+local coinArrivalPulseCount_ = 0
 local effectTime_ = 0
 
 local Clamp01
@@ -96,11 +99,50 @@ function Effects.Reset()
     attackEffects_ = {}
     mergeEffects_ = {}
     coinEffects_ = {}
+    pendingCoinCredit_ = 0
+    coinTargetAmount_ = nil
+    coinArrivalPulseCount_ = 0
     effectTime_ = 0
 end
 
 function Effects.Update(timeStep)
     effectTime_ = effectTime_ + timeStep
+    for _, eff in ipairs(coinEffects_) do
+        if not eff.arrived and effectTime_ >= eff.startTime + eff.duration then
+            eff.arrived = true
+            local amount = math.max(0, math.floor(eff.displayAmount or 0))
+            pendingCoinCredit_ = math.max(0, pendingCoinCredit_ - amount)
+            if amount > 0 then
+                coinArrivalPulseCount_ = coinArrivalPulseCount_ + 1
+            end
+        end
+    end
+end
+
+function Effects.GetCoinArrivalDelay(index, startDelay)
+    local arrivalIndex = math.max(1, math.floor(tonumber(index) or 1))
+    return math.max(0, tonumber(startDelay) or 0)
+        + (arrivalIndex - 1) * COIN_DROP_STAGGER
+        + COIN_DROP_DURATION
+end
+
+function Effects.GetCoinDisplayAmount(actualAmount)
+    local amount = math.max(0, math.floor(tonumber(actualAmount) or 0))
+    if pendingCoinCredit_ > 0 and coinTargetAmount_ ~= nil then
+        return math.max(0, coinTargetAmount_ - pendingCoinCredit_)
+    end
+    coinTargetAmount_ = amount
+    return amount
+end
+
+function Effects.HasPendingCoinCredit()
+    return pendingCoinCredit_ > 0
+end
+
+function Effects.ConsumeCoinArrivalPulses()
+    local count = coinArrivalPulseCount_
+    coinArrivalPulseCount_ = 0
+    return count
 end
 
 function Effects.TriggerMerge(category, idx, quality)
@@ -115,16 +157,30 @@ end
 
 function Effects.TriggerCoinDrops(state, startDelay)
     startDelay = math.max(0, startDelay or 0)
-    for _, drop in ipairs(state and state.lastCoinDropEvents or {}) do
+    local drops = state and state.lastCoinDropEvents or {}
+    if #drops == 0 then return end
+
+    coinTargetAmount_ = math.max(0, math.floor(tonumber(state.coins) or 0))
+    local totalAmount = 0
+    for _, drop in ipairs(drops) do
+        totalAmount = totalAmount + math.max(1, math.floor(drop.amount or 1))
+    end
+    pendingCoinCredit_ = pendingCoinCredit_ + totalAmount
+
+    for _, drop in ipairs(drops) do
         local amount = math.max(1, math.floor(drop.amount or 1))
         local coinCount = math.min(7, math.max(3, math.ceil(amount / 3)))
+        local baseAmount = math.floor(amount / coinCount)
+        local remainder = amount % coinCount
         for index = 1, coinCount do
             table.insert(coinEffects_, {
                 col = drop.col,
                 row = drop.row,
                 index = index,
                 count = coinCount,
-                startTime = effectTime_ + startDelay + (index - 1) * COIN_DROP_STAGGER,
+                displayAmount = baseAmount + (index <= remainder and 1 or 0),
+                arrived = false,
+                startTime = effectTime_ + Effects.GetCoinArrivalDelay(index, startDelay) - COIN_DROP_DURATION,
                 duration = COIN_DROP_DURATION,
             })
         end
@@ -133,7 +189,7 @@ end
 
 local function CoinTargetPoint(board)
     local rect = BoardLayout.ToScreenRect(board, board.coin)
-    return rect.x + rect.w * 0.5, rect.y + rect.h * 0.5
+    return rect.x + 47 * board.scale, rect.y + rect.h * 0.5
 end
 
 local function CoinDropStartPoint(board, eff)

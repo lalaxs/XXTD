@@ -67,26 +67,19 @@ local function GetRewardStage(def)
     return nil
 end
 
-local function IsWeaponOwned(state, weaponId)
-    if not weaponId then return false end
-    for _, item in pairs(state.slots or {}) do
-        if item and item.baseId == weaponId then return true end
-    end
-    for _, item in ipairs(state.dropQueue or {}) do
-        if item and item.baseId == weaponId then return true end
-    end
-    return false
+local function IsWeaponUnlocked(state, weaponId)
+    return weaponId ~= nil and state.runWeapons[weaponId] == true
 end
 
 local function AreRequiredWeaponsAvailable(state, def)
     local requiredWeapons = def.requiredWeapons
     if not requiredWeapons or #requiredWeapons == 0 then
-        return def.kind ~= "weaponSkill" or IsWeaponOwned(state, def.weaponId)
+        return def.kind ~= "weaponSkill" or IsWeaponUnlocked(state, def.weaponId)
     end
 
     local matches = 0
     for _, weaponId in ipairs(requiredWeapons) do
-        if IsWeaponOwned(state, weaponId) then matches = matches + 1 end
+        if IsWeaponUnlocked(state, weaponId) then matches = matches + 1 end
     end
     return def.requiresAnyWeapon and matches > 0 or matches == #requiredWeapons
 end
@@ -268,8 +261,74 @@ function RogueRewardSystem.CreateChoicesForStage(state, stage)
     return choices
 end
 
-function RogueRewardSystem.CreateBreakthroughChoices(state)
-    return RogueRewardSystem.CreateChoicesForStage(state, "attack")
+function RogueRewardSystem.RefreshChoices(state)
+    EnsureTables(state)
+    local stage = state.pendingRogueStage
+    local current = state.pendingRogueChoices or {}
+    if not stage or #current == 0 then
+        return { ok = false, message = "当前没有可刷新的机缘" }
+    end
+
+    local excluded = {}
+    for _, reward in ipairs(current) do
+        excluded[reward.id] = true
+    end
+
+    local candidates = {}
+    for _, def in ipairs(BuildCandidates(state, stage)) do
+        if not excluded[def.id] then
+            table.insert(candidates, def)
+        end
+    end
+    if #candidates < math.min(3, #current) then
+        return { ok = false, message = "暂无足够的不重复机缘" }
+    end
+
+    local choices = {}
+    for _, def in ipairs(BuildOffer(state, candidates, stage)) do
+        table.insert(choices, CopyReward(state, def))
+    end
+    if #choices ~= #current then
+        return { ok = false, message = "暂无足够的不重复机缘" }
+    end
+
+    state.pendingRogueChoices = choices
+    print(string.format("[Rogue Reward] 已刷新%s阶段机缘，%d项均与原选项不同", ROGUE_STAGES[stage].label, #choices))
+    return { ok = true, choices = choices, message = "机缘已刷新" }
+end
+
+local function ClearPendingStages(state)
+    state.pendingRogueChoices = nil
+    state.pendingRogueStage = nil
+    state.pendingRogueStages = nil
+    state.pendingRogueStageIndex = nil
+    state.pendingRogueEvent = nil
+end
+
+local function AdvanceToAvailableStage(state, startIndex)
+    local stages = state.pendingRogueStages or {}
+    local index = startIndex or ((state.pendingRogueStageIndex or 0) + 1)
+
+    while index <= #stages do
+        state.pendingRogueStageIndex = index
+        local stage = stages[index]
+        local choices = RogueRewardSystem.CreateChoicesForStage(state, stage)
+        if #choices > 0 then
+            return stage, choices
+        end
+        print(string.format("[Rogue Reward] %s阶段无可用机缘，自动跳过", ROGUE_STAGES[stage].label))
+        index = index + 1
+    end
+
+    ClearPendingStages(state)
+    return nil, {}
+end
+
+function RogueRewardSystem.CreateBreakthroughChoices(state, stages)
+    state.pendingRogueStages = stages or { "attack" }
+    state.pendingRogueStageIndex = 0
+    local _, choices = AdvanceToAvailableStage(state, 1)
+    return choices
 end
 
 local function GrantUnlockItem(state, reward, category, unlocked, limit, itemId)
@@ -374,16 +433,13 @@ function RogueRewardSystem.SelectChoice(state, rewardId)
     if picked.armorId then state.armorUpgradeLevels[picked.id] = picked.nextLevel end
     AddHistory(state, picked, stage)
 
-    local nextStage = stage == "attack" and "armor" or (stage == "armor" and "enemy" or nil)
-    if nextStage then
-        local nextChoices = RogueRewardSystem.CreateChoicesForStage(state, nextStage)
-        if #nextChoices == 0 then
-            return { ok = false, message = "当前阶段暂无可用机缘" }
-        end
-    else
-        state.pendingRogueChoices = nil
-        state.pendingRogueStage = nil
-        state.pendingRogueEvent = nil
+    local nextStage
+    local nextIndex = (state.pendingRogueStageIndex or 0) + 1
+    nextStage = select(1, AdvanceToAvailableStage(state, nextIndex))
+    local completed = nextStage == nil
+
+    if completed then
+        ClearPendingStages(state)
     end
 
     print(string.format("[Rogue Reward] %s阶段选择%s %d/%d", ROGUE_STAGES[stage].label, picked.name, picked.nextLevel, picked.maxStacks))
@@ -392,7 +448,7 @@ function RogueRewardSystem.SelectChoice(state, rewardId)
         reward = picked,
         stage = stage,
         nextStage = nextStage,
-        completed = nextStage == nil,
+        completed = completed,
         message = "获得机缘：" .. picked.name,
     }
 end

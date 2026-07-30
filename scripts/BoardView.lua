@@ -9,6 +9,7 @@ local BoardLayout = require("BoardLayout")
 local StatusPresenter = require("views.StatusPresenter")
 local VisualState = require("VisualState")
 local VectorIcons = require("views.VectorIcons")
+local Effects = require("Effects")
 
 local BoardView = {}
 
@@ -503,7 +504,7 @@ local function AddDailyTagButton(boardPanel, state, m, callbacks)
     for _, tag in ipairs(tags) do
         table.insert(tagNames, tag.name or tag.id or "未知词条")
     end
-    local buttonText = #tagNames > 0 and table.concat(tagNames, " · ") or "今日无额外词条"
+    local buttonText = "挑战"
     local tagRect = D(m.dailyTags, m.scale)
 
     boardPanel:AddChild(UI.Panel {
@@ -559,16 +560,26 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
     AddStatusBars(boardPanel, state, m)
 
     local coinRect = D(m.coin, m.scale)
+    local coinAmount = Effects.GetCoinDisplayAmount(state.coins)
+    local coinText = tostring(coinAmount)
+    if coinAmount > 10000 then
+        local roundedThousands = math.floor(coinAmount / 100 + 0.5) / 10
+        if roundedThousands == math.floor(roundedThousands) then
+            coinText = string.format("%.0fK", roundedThousands)
+        else
+            coinText = string.format("%.1fK", roundedThousands)
+        end
+    end
+    local coinIconSize = 90 * m.scale
+    local coinIconInset = 2 * m.scale
     boardPanel:AddChild(UI.Panel {
         position = "absolute",
         left = m.originX + coinRect.x,
         top = m.originY + coinRect.y,
         width = coinRect.w,
         height = coinRect.h,
-        flexDirection = "row",
         alignItems = "center",
         justifyContent = "center",
-        gap = 8 * m.scale,
         backgroundColor = {247, 226, 181, 250},
         borderWidth = math.max(1, 2 * m.scale),
         borderColor = {154, 112, 61, 235},
@@ -581,16 +592,29 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
         pointerEvents = "none",
         children = {
             CoinIcon {
-                width = math.max(38, 93 * m.scale),
-                height = math.max(38, 93 * m.scale),
+                position = "absolute",
+                left = coinIconInset,
+                top = (coinRect.h - coinIconSize) * 0.5,
+                width = coinIconSize,
+                height = coinIconSize,
+                flexShrink = 0,
                 pointerEvents = "none",
             },
             UI.Label {
-                text = tostring(state.coins or 0),
+                id = "coinAmount",
+                text = coinText,
+                position = "absolute",
+                left = 72 * m.scale,
+                top = 0,
+                width = coinRect.w - 84 * m.scale,
+                height = "100%",
                 flexShrink = 1,
                 fontSize = math.max(20, math.floor(36 * m.scale)),
                 fontWeight = "bold",
                 fontColor = {28, 27, 36, 255},
+                textAlign = "center",
+                verticalAlign = "middle",
+                maxLines = 1,
                 pointerEvents = "none",
             },
         },
@@ -649,8 +673,6 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
             end
         end,
     })
-
-    AddDailyTagButton(boardPanel, state, m, callbacks)
 
     local expRect = D(m.expCircle, m.scale)
     boardPanel:AddChild(UI.Panel {
@@ -935,7 +957,7 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
     end
 
     if storageSlot then
-        local s = D({ x = 430, y = 2065, w = 220, h = 132 }, m.scale)
+        local s = D(m.storageSlot, m.scale)
         storageSlot:SetStyle({
             position = "absolute",
             left = m.originX + s.x,
@@ -953,7 +975,7 @@ function BoardView.Update(boardPanel, state, slots, storageSlot, decomposeSlot, 
     end
 
     if decomposeSlot then
-        local d = D({ x = 28, y = 2010, w = 376, h = 197 }, m.scale)
+        local d = D(m.decomposeDrop, m.scale)
         decomposeSlot:SetStyle({
             position = "absolute",
             left = m.originX + d.x,

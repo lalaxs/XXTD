@@ -17,7 +17,7 @@ local TAG_LIBRARY = {
         description = "妖魔刷新概率提高35%，单次刷新数量提高25%。",
         kind = "pressure",
         effects = { monsterSpawnChanceMul = 1.35, monsterSpawnCountMul = 1.25 },
-        conflicts = { "solitary_ogres" },
+        conflicts = { "solitary_ogres", "monster_tide_plus" },
     },
     {
         id = "solitary_ogres",
@@ -25,7 +25,15 @@ local TAG_LIBRARY = {
         description = "每次刷新妖魔更少，但妖魔生命与攻击提高35%。",
         kind = "pressure",
         effects = { monsterSpawnCountMul = 0.65, monsterHpMul = 1.35, monsterAtkMul = 1.35 },
-        conflicts = { "monster_tide" },
+        conflicts = { "monster_tide", "monster_tide_plus" },
+    },
+    {
+        id = "monster_tide_plus",
+        name = "妖潮加剧",
+        description = "妖魔刷新概率提高20%，单次刷新数量提高15%，但妖魔生命降低15%。",
+        kind = "pressure",
+        effects = { monsterSpawnChanceMul = 1.20, monsterSpawnCountMul = 1.15, monsterHpMul = 0.85 },
+        conflicts = { "solitary_ogres", "monster_tide" },
     },
     {
         id = "sharp_fangs",
@@ -80,33 +88,61 @@ local TAG_LIBRARY = {
     {
         id = "premium_stock",
         name = "上品云集",
-        description = "商品与场地奖励最低品质提高1阶，商铺刷新基础价格提高50%。",
+        description = "商品与场地奖励最低品质提高1阶，商铺刷新基础及封顶价格提高50%。",
         kind = "neutral",
-        effects = { rewardQualityShift = 1, shopRefreshBaseMul = 1.50 },
+        effects = { rewardQualityShift = 1, shopRefreshBaseMul = 1.50, shopRefreshMaxMul = 1.50 },
         conflicts = { "cheap_market" },
     },
     {
         id = "cheap_market",
         name = "灵市低价",
-        description = "商铺刷新基础价格降低40%。",
+        description = "商铺刷新基础及封顶价格降低40%。",
         kind = "benefit",
-        effects = { shopRefreshBaseMul = 0.60 },
-        conflicts = { "premium_stock", "restless_market" },
+        effects = { shopRefreshBaseMul = 0.60, shopRefreshMaxMul = 0.60 },
+        conflicts = { "premium_stock", "restless_market", "wealth_path" },
     },
     {
         id = "restless_market",
         name = "灵市躁动",
-        description = "首次刷新更便宜，但每次刷新涨价更快。",
+        description = "首次刷新更便宜，但每次刷新涨价更快，封顶价格提高80%。",
         kind = "neutral",
-        effects = { shopRefreshBaseMul = 0.60, shopRefreshStepMul = 1.80 },
+        effects = { shopRefreshBaseMul = 0.60, shopRefreshStepMul = 1.80, shopRefreshMaxMul = 1.80 },
         conflicts = { "cheap_market" },
     },
     {
         id = "wealth_opens_paths",
         name = "财可通神",
-        description = "初始金币+20，商铺刷新价格提高30%。",
+        description = "初始金币+20，商铺刷新及封顶价格提高30%。",
         kind = "benefit",
-        effects = { initialCoinsAdd = 20, shopRefreshBaseMul = 1.30, shopRefreshStepMul = 1.30 },
+        effects = { initialCoinsAdd = 20, shopRefreshBaseMul = 1.30, shopRefreshStepMul = 1.30, shopRefreshMaxMul = 1.30 },
+    },
+    {
+        id = "wealth_path",
+        name = "财路亨通",
+        description = "妖魔击杀金币掉落概率提高15个百分点，但商铺刷新价格提高40%。",
+        kind = "benefit",
+        effects = {
+            killCoinDropChanceAdd = 0.15,
+            shopRefreshBaseMul = 1.40,
+            shopRefreshStepMul = 1.40,
+            shopRefreshMaxMul = 1.40,
+        },
+        conflicts = { "cheap_market" },
+    },
+    {
+        id = "cultivation_tide",
+        name = "修行如潮",
+        description = "妖魔提供的修为提高25%，但妖魔攻击提高15%。",
+        kind = "neutral",
+        effects = { monsterExpMul = 1.25, monsterAtkMul = 1.15 },
+    },
+    {
+        id = "soul_contract",
+        name = "噬魂灵契",
+        description = "击杀妖魔恢复最大生命的1.5%，但最大生命降低20%。",
+        kind = "benefit",
+        effects = { killHealPctAdd = 0.015, playerMaxHpMul = 0.80 },
+        conflicts = { "endless_vitality", "desperate_gamble" },
     },
     {
         id = "desperate_gamble",
@@ -114,7 +150,7 @@ local TAG_LIBRARY = {
         description = "我方法宝伤害提高30%，最大生命降低30%。",
         kind = "neutral",
         effects = { playerDamageMul = 1.30, playerMaxHpMul = 0.70 },
-        conflicts = { "endless_vitality" },
+        conflicts = { "endless_vitality", "soul_contract" },
     },
     {
         id = "endless_vitality",
@@ -122,7 +158,7 @@ local TAG_LIBRARY = {
         description = "每回合额外恢复最大生命的3%。",
         kind = "benefit",
         effects = { turnRegenPctAdd = 0.03 },
-        conflicts = { "desperate_gamble", "spirit_withering" },
+        conflicts = { "desperate_gamble", "spirit_withering", "soul_contract" },
     },
     {
         id = "spirit_withering",
@@ -173,10 +209,10 @@ local function GetAuthorityTime()
     if common and common.get_server_time then
         local ok, timestamp = pcall(common.get_server_time)
         if ok and type(timestamp) == "number" and timestamp > 0 then
-            return math.floor(timestamp)
+            return math.floor(timestamp), true
         end
     end
-    return os.time()
+    return nil, false
 end
 
 local function HashString(text)
@@ -198,6 +234,8 @@ end
 
 local function HasConflict(tag, selected)
     for _, picked in ipairs(selected) do
+        if tag.id == picked.id then return true end
+
         for _, conflictId in ipairs(tag.conflicts or {}) do
             if conflictId == picked.id then return true end
         end
@@ -260,12 +298,21 @@ local function BuildTags(seed)
 end
 
 function DailyChallenge.ResolveToday()
-    local timestamp = GetAuthorityTime()
+    local timestamp, isAuthorityTime = GetAuthorityTime()
+    if not isAuthorityTime then
+        return {
+            available = false,
+            isAuthorityTime = false,
+        }
+    end
+
     local date = os.date("!%Y-%m-%d", timestamp + BEIJING_OFFSET_SECONDS)
     local seed = HashString("daily-challenge:" .. date .. ":" .. tostring(RULESET_VERSION))
     local tags = BuildTags(seed)
 
     return {
+        available = true,
+        isAuthorityTime = isAuthorityTime,
         id = date .. "-v" .. tostring(RULESET_VERSION),
         date = date,
         seed = seed,

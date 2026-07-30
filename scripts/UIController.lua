@@ -17,6 +17,9 @@ local TitleView = require("views.TitleView")
 local LeaderboardView = require("views.LeaderboardView")
 local DailyChallengeView = require("views.DailyChallengeView")
 local DailyTagView = require("views.DailyTagView")
+local SettingsView = require("views.SettingsView")
+local TutorialView = require("views.TutorialView")
+local TutorialSystem = require("TutorialSystem")
 local LeaderboardService = require("LeaderboardService")
 local DailyChallenge = require("DailyChallenge")
 local DailyChallengeProgress = require("DailyChallengeProgress")
@@ -26,6 +29,7 @@ local DebugWeaponSystem = require("debug.DebugWeaponSystem")
 local ReincarnationActions = require("actions.ReincarnationActions")
 local GameEvents = require("GameEvents")
 local VisualState = require("VisualState")
+local Effects = require("Effects")
 
 local UIController = {}
 UIController.__index = UIController
@@ -135,11 +139,14 @@ function UIController.Create(state, callbacks)
         leaderboardView = nil,
         dailyChallengeView = nil,
         dailyTagView = nil,
+        settingsView = nil,
+        tutorialView = nil,
         floatingTextView = nil,
         dragContext = nil,
         inventoryMgr = nil,
         currentState_ = state,
         currentDailyChallengeId_ = nil,
+        coinSoundCooldown_ = 0,
     }, UIController)
 
     self.inventoryMgr = UI.InventoryManager.new({
@@ -199,12 +206,15 @@ function UIController.Create(state, callbacks)
 
     local topHUD = self:CreateTopHUD()
     self.fieldPanel = Views.CreateFieldPanel()
+    self.tutorialView = TutorialView.Create(self.fieldPanel)
     self.floatingTextView = FloatingTextView.Create({ anchorPanel = self.fieldPanel })
     self:CreateSlots()
     self.gameOverPanel = Views.CreateGameOverPanel({
         onRestart = self.callbacks.onRestart,
         onContinue = self.callbacks.onContinueRun,
+        onReturnToTitle = self.callbacks.onReturnToTitle,
         onReincarnate = self.callbacks.onReincarnate,
+        onGameOverConfirm = self.callbacks.onGameOverConfirm,
     })
     self.infoPanel = InfoPanelView.Create()
     self.infoPanel:SetOnUse(function(context)
@@ -213,14 +223,26 @@ function UIController.Create(state, callbacks)
         end
     end)
     self.rogueRewardView = RogueRewardView.Create(function(rewardId)
+        if self.callbacks.onUIClick then
+            self.callbacks.onUIClick()
+        end
         if self.callbacks.onSelectRogueReward then
             self.callbacks.onSelectRogueReward(rewardId)
+        end
+    end, function()
+        if self.callbacks.onRefreshRogueReward then
+            self.callbacks.onRefreshRogueReward()
         end
     end)
     self.shopView = ShopView.Create({
         onBuy = function(itemIndex)
             if self.callbacks.onBuyShopItem then
                 self.callbacks.onBuyShopItem(itemIndex)
+            end
+        end,
+        onClaimAdItem = function(itemIndex)
+            if self.callbacks.onClaimShopAdItem then
+                self.callbacks.onClaimShopAdItem(itemIndex)
             end
         end,
         onClose = function()
@@ -233,8 +255,16 @@ function UIController.Create(state, callbacks)
                 self.callbacks.onRefreshShop()
             end
         end,
+        onAdRefresh = function()
+            if self.callbacks.onAdRefreshShop then
+                self.callbacks.onAdRefreshShop()
+            end
+        end,
     })
     self.mainMenuView = MainMenuView.Create({
+        onUIClick = function()
+            if self.callbacks.onUIClick then self.callbacks.onUIClick() end
+        end,
         onReincarnation = function()
             self:ShowReincarnationUpgrades()
         end,
@@ -242,7 +272,8 @@ function UIController.Create(state, callbacks)
             self:ShowRogueBuffList()
         end,
         onSettings = function()
-            self:ShowOperationWarning("该操作不可用")
+            self.mainMenuView:Hide()
+            self:ShowSettings()
         end,
         onDifficulty = function()
             self:ShowOperationWarning("该操作不可用")
@@ -252,11 +283,23 @@ function UIController.Create(state, callbacks)
                 self.callbacks.onAbandonRun()
             end
         end,
+        onSaveAndReturnToTitle = function()
+            if self.callbacks.onSaveAndReturnToTitle then
+                self.callbacks.onSaveAndReturnToTitle()
+            end
+        end,
     })
-    self.reincarnationView = ReincarnationView.Create(function(upgradeId)
-        self:UpgradeReincarnation(upgradeId)
+    self.reincarnationView = ReincarnationView.Create(
+        function(upgradeId)
+            self:UpgradeReincarnation(upgradeId)
+        end,
+        function()
+            if self.callbacks.onUIClick then self.callbacks.onUIClick() end
+        end
+    )
+    self.rogueBuffListView = RogueBuffListView.Create(function()
+        if self.callbacks.onUIClick then self.callbacks.onUIClick() end
     end)
-    self.rogueBuffListView = RogueBuffListView.Create()
     self.titleView = TitleView.Create({
         onContinue = function()
             if self.currentState_ and self.callbacks.onContinueRun then
@@ -278,6 +321,9 @@ function UIController.Create(state, callbacks)
                 self:ShowOperationWarning("每日挑战暂不可用")
             end
         end,
+        onSettings = function()
+            self:ShowSettings()
+        end,
     })
     self.leaderboardView = LeaderboardView.Create({
         onRefresh = function()
@@ -288,6 +334,11 @@ function UIController.Create(state, callbacks)
         end,
     })
     self.dailyChallengeView = DailyChallengeView.Create({
+        onContinue = function()
+            if self.callbacks.onContinueDailyChallenge then
+                self.callbacks.onContinueDailyChallenge()
+            end
+        end,
         onStart = function()
             if self.callbacks.onBeginDailyChallenge then
                 self.callbacks.onBeginDailyChallenge()
@@ -300,8 +351,33 @@ function UIController.Create(state, callbacks)
             self:HideDailyChallenge()
             self:ShowLeaderboard(self.currentDailyChallengeId_)
         end,
+        onReset = function()
+            if self.callbacks.onResetDailyChallenge then
+                self.callbacks.onResetDailyChallenge()
+            end
+        end,
     })
     self.dailyTagView = DailyTagView.Create()
+    self.settingsView = SettingsView.Create({
+        onUIClick = function()
+            if self.callbacks.onUIClick then self.callbacks.onUIClick() end
+        end,
+        onMusicVolumeChange = function(value, shouldSave)
+            if self.callbacks.onMusicVolumeChange then
+                self.callbacks.onMusicVolumeChange(value, shouldSave)
+            end
+        end,
+        onSfxVolumeChange = function(value, shouldSave)
+            if self.callbacks.onSfxVolumeChange then
+                self.callbacks.onSfxVolumeChange(value, shouldSave)
+            end
+        end,
+        onDeleteSave = function()
+            if self.callbacks.onDeleteSave then
+                self.callbacks.onDeleteSave()
+            end
+        end,
+    })
     self.debugStatusView = DebugStatusView.Create({
         onApply = function(statusId)
             if self.currentState_ and DebugStatusSystem.Apply(self.currentState_, statusId) then
@@ -364,6 +440,11 @@ function UIController.Create(state, callbacks)
             if self.currentState_ then
                 DebugWeaponSystem.SetPlayerHpRatio(self.currentState_, ratio)
                 self.debugWeaponView:Refresh(self.currentState_)
+                self:UpdateAll(self.currentState_)
+            end
+        end,
+        onAscensionSuccess = function()
+            if self.currentState_ and DebugWeaponSystem.TriggerAscensionSuccess(self.currentState_) then
                 self:UpdateAll(self.currentState_)
             end
         end,
@@ -441,6 +522,7 @@ function UIController.Create(state, callbacks)
             },
         },
         self.floatingTextView:GetRoot(),
+        self.tutorialView:GetRoot(),
         self.infoPanel:GetRoot(),
         self.rogueRewardView:GetRoot(),
         self.shopView:GetRoot(),
@@ -451,6 +533,7 @@ function UIController.Create(state, callbacks)
         self.leaderboardView:GetRoot(),
         self.dailyChallengeView:GetRoot(),
         self.dailyTagView:GetRoot(),
+        self.settingsView:GetRoot(),
         self.debugStatusView:GetRoot(),
         self.debugWeaponView:GetRoot(),
         self.gameOverPanel,
@@ -620,6 +703,18 @@ function UIController:ShowRogueBuffList()
     end
 end
 
+function UIController:SetNormalSaveState(hasSave, canContinue)
+    if self.titleView then
+        self.titleView:SetSaveState(hasSave, canContinue)
+    end
+end
+
+function UIController:SetNormalSaveLoading(loading)
+    if self.titleView then
+        self.titleView:SetSaveLoading(loading)
+    end
+end
+
 function UIController:ShowTitle()
     if self.titleView then
         self.titleView:Show()
@@ -630,6 +725,28 @@ function UIController:HideTitle()
     if self.titleView then
         self.titleView:Hide()
     end
+end
+
+function UIController:ShowSettings()
+    if not self.settingsView then return end
+    local settings = { musicVolume = 1.0, sfxVolume = 1.0 }
+    if self.callbacks.getSettings then
+        settings = self.callbacks.getSettings() or settings
+    end
+    self.settingsView:Show(settings)
+end
+
+function UIController:HideSettings()
+    if self.settingsView then
+        self.settingsView:Hide()
+    end
+end
+
+function UIController:IsDailyChallengeVisible(challengeId)
+    local visible = self.dailyChallengeView and self.dailyChallengeView.root
+        and self.dailyChallengeView.root:IsVisible() == true
+    if not visible then return false end
+    return challengeId == nil or self.currentDailyChallengeId_ == challengeId
 end
 
 function UIController:ShowDailyChallenge(challenge, progress)
@@ -667,7 +784,12 @@ function UIController:RefreshDailyLeaderboard()
     if not self.leaderboardView then return end
     local challengeId = self.leaderboardView.dailyChallengeId
     if not challengeId or challengeId == "" then
-        challengeId = DailyChallenge.ResolveToday().id
+        local challenge = DailyChallenge.ResolveToday()
+        if challenge.available ~= true then
+            self.leaderboardView:SetDailyEntries(nil, nil, "服务器时间不可用，暂不能读取每日排行榜")
+            return
+        end
+        challengeId = challenge.id
         self.currentDailyChallengeId_ = challengeId
         self.leaderboardView:SetDailyChallengeId(challengeId)
     end
@@ -682,13 +804,17 @@ function UIController:ShowMainMenu()
     end
 end
 
+function UIController:HideMainMenu()
+    if self.mainMenuView then
+        self.mainMenuView:Hide()
+    end
+end
+
 function UIController:UpgradeReincarnation(upgradeId)
     if not self.currentState_ then return end
     local result = ReincarnationActions.Upgrade(self.currentState_, upgradeId)
     if not result.ok then
         self:ShowOperationWarning(result.message)
-    elseif self.callbacks.onCultivationUpgrade then
-        self.callbacks.onCultivationUpgrade()
     end
     if self.reincarnationView then
         self.reincarnationView:Show(self.currentState_)
@@ -698,8 +824,31 @@ end
 
 function UIController:Update(dt)
     self.infoPanel:Update(dt)
+    self.coinSoundCooldown_ = math.max(0, self.coinSoundCooldown_ - dt)
     if self.dailyChallengeView then
         self.dailyChallengeView:Update(dt)
+    end
+
+    local arrivalCount = Effects.ConsumeCoinArrivalPulses()
+    if arrivalCount > 0 and self.currentState_ then
+        if self.coinSoundCooldown_ <= 0 and self.callbacks.onCoinArrival then
+            self.callbacks.onCoinArrival()
+            self.coinSoundCooldown_ = 0.12
+        end
+        self:UpdateBoard(self.currentState_)
+        local coinLabel = self.fieldPanel:FindById("coinAmount")
+        if coinLabel then
+            coinLabel:Animate({
+                keyframes = {
+                    [0] = { scale = 1.0 },
+                    [0.45] = { scale = 1.0 + math.min(0.24, 0.10 + arrivalCount * 0.03) },
+                    [1] = { scale = 1.0 },
+                },
+                duration = 0.20,
+                easing = "easeOutBack",
+                fillMode = "forwards",
+            })
+        end
     end
 end
 
@@ -709,10 +858,23 @@ function UIController:SyncDataToManager(state)
     end
 end
 
+function UIController:UpdateTutorial(state)
+    if not self.tutorialView then return end
+    self.tutorialView:SetPresentation(TutorialSystem.GetPresentation(state))
+    self.tutorialView:UpdateLayout()
+end
+
+function UIController:SetFirstStartGuidance(enabled)
+    if self.titleView then
+        self.titleView:SetFirstStartGuidance(enabled)
+    end
+end
+
 function UIController:UpdateAll(state)
     self.currentState_ = state
     self:UpdateHUD(state)
     self:UpdateBoard(state)
+    self:UpdateTutorial(state)
     self:ShowFloatingEvents(state)
     self:UpdateRogueRewardView(state)
     self:UpdateShopView(state)
@@ -784,9 +946,6 @@ function UIController:ShowFloatingEvents(state)
 
     if events.breakthroughEvent then
         local event = events.breakthroughEvent
-        if self.callbacks.onCultivationUpgrade then
-            self.callbacks.onCultivationUpgrade()
-        end
         self.floatingTextView:ShowCenter("突破·" .. tostring(event.realmName or "新境界"), {
             variant = "breakthrough",
             anchorY = 0.36,
@@ -848,7 +1007,13 @@ function UIController:UpdateRogueRewardView(state)
 
     local choices = state.pendingRogueChoices
     if choices and #choices > 0 then
-        self.rogueRewardView:Show(state.pendingRogueEvent, choices, state.pendingRogueStage)
+        self.rogueRewardView:Show(
+            state.pendingRogueEvent,
+            choices,
+            state.pendingRogueStage,
+            state.pendingRogueStageIndex,
+            state.pendingRogueStages and #state.pendingRogueStages or 1
+        )
     else
         self.rogueRewardView:Hide()
     end
@@ -925,6 +1090,7 @@ function UIController:UpdateBoard(state)
             self.dailyTagView:Show(challenge)
         end,
         onMainMenuClick = function()
+            if self.callbacks.onUIClick then self.callbacks.onUIClick() end
             self:ShowMainMenu()
         end,
         onExpCircleClick = function()
@@ -934,53 +1100,117 @@ function UIController:UpdateBoard(state)
             self:HideItemInfo()
         end,
     })
+    if self.tutorialView then
+        self.tutorialView:UpdateLayout()
+    end
 end
 
 function UIController:ShowGameOver(state)
+    local confirmButton = self.gameOverPanel:FindById("goConfirmButton")
+    if confirmButton then confirmButton:SetText("确认") end
     self.gameOverPanel:SetVisible(true)
     local title = self.gameOverPanel:FindById("goTitle")
     local desc = self.gameOverPanel:FindById("goDesc")
+    local reward = self.gameOverPanel:FindById("goReward")
     local s = self.gameOverPanel:FindById("goScore")
     local r = self.gameOverPanel:FindById("goRealm")
     local continueButton = self.gameOverPanel:FindById("goContinueButton")
     local reincarnateButton = self.gameOverPanel:FindById("goReincarnateButton")
+    local reviveButton = self.gameOverPanel:FindById("goReviveButton")
     local restartButton = self.gameOverPanel:FindById("goRestartButton")
+    local confirmButton = self.gameOverPanel:FindById("goConfirmButton")
+    local totalKills = math.max(state.totalKills or 0, state.endlessKills or 0)
 
     if state.isVictory then
         if title then
             title:SetText(state.dailyChallenge and "每日挑战完成" or (state.victoryReason == "ascension_death" and "无尽挑战结束" or "飞升成功"))
         end
-        if s then s:SetText((state.dailyChallenge and "本局分数: " or "积分: ") .. state.score .. "  击杀: " .. tostring(state.endlessKills or 0)) end
+        if reward then
+            reward:SetText(state.victoryReason == "ascension"
+                and "飞升已成：已获得 1 轮回点"
+                or "")
+            reward:SetVisible(state.victoryReason == "ascension")
+        end
+        if s then
+            s:SetVisible(true)
+            s:SetText((state.dailyChallenge and "本局分数: " or "积分: ") .. state.score .. "  击杀: " .. tostring(totalKills))
+        end
         if r then
+            r:SetVisible(true)
             r:SetText(state.victoryReason == "ascension_death"
                 and ("无尽波次: " .. tostring(state.endlessWaveIndex or 0))
                 or ("已通关难度 " .. tostring(state.difficulty or 1)))
         end
 
         if state.victoryReason == "ascension_death" then
-            if desc then desc:SetText("飞升状态下挑战终止。你可以进入轮回，保留本轮无尽挑战成果。") end
+            if desc then desc:SetText("无尽挑战已完成。本局积分与击杀次数已结算，飞升时获得的轮回点不会重复发放。") end
             if continueButton then continueButton:SetVisible(false) end
-            if reincarnateButton then reincarnateButton:SetVisible(true) end
+            if reincarnateButton then
+                reincarnateButton:SetText("返回主界面")
+                reincarnateButton:SetVisible(true)
+            end
+            if reviveButton then reviveButton:SetVisible(false) end
+            if confirmButton then confirmButton:SetVisible(false) end
             if restartButton then restartButton:SetVisible(false) end
         elseif state.victoryReason == "ascension_failed" then
-            if desc then desc:SetText("你已证得飞升之果，此后战败亦算功成。本轮需要进入轮回。") end
+            if desc then desc:SetText("飞升已成。本局积分与击杀次数已结算，飞升时获得的轮回点不会重复发放。") end
             if continueButton then continueButton:SetVisible(false) end
-            if reincarnateButton then reincarnateButton:SetVisible(true) end
+            if reincarnateButton then
+                reincarnateButton:SetText("返回主界面")
+                reincarnateButton:SetVisible(true)
+            end
+            if reviveButton then reviveButton:SetVisible(false) end
+            if confirmButton then confirmButton:SetVisible(false) end
             if restartButton then restartButton:SetVisible(false) end
         else
-            if desc then desc:SetText("成功突破至飞升境界。可继续当前游戏挑战更强波次，也可进入轮回。") end
+            if desc then desc:SetText("可继续当前游戏挑战更强波次，获得更高积分。") end
             if continueButton then continueButton:SetVisible(state.canContinueRun == true) end
-            if reincarnateButton then reincarnateButton:SetVisible(true) end
+            if reincarnateButton then
+                reincarnateButton:SetText("返回主界面")
+                reincarnateButton:SetVisible(true)
+            end
+            if confirmButton then confirmButton:SetVisible(false) end
             if restartButton then restartButton:SetVisible(false) end
         end
     else
-        if title then title:SetText("道陨身殒") end
-        if desc then desc:SetText("本轮修行失败，将直接重开，不再退回境界。") end
-        if s then s:SetText("积分: " .. state.score) end
-        if r then r:SetText("最终境界: " .. Config.GetRealm(state.realmIndex).name) end
+        if reward then
+            reward:SetText("")
+            reward:SetVisible(false)
+        end
+        local abandoned = state.settlementType == "abandoned"
+        local abandonedDaily = abandoned and DailyChallenge.IsActive(state)
+        if title then title:SetText(abandoned and "已放弃本局" or "道陨身殒") end
+        if desc then
+            desc:SetText(abandonedDaily
+                and "你已放弃本次每日挑战。本局已结算，但不获得轮回点。"
+                or (abandoned and "你已放弃本局。本局不获得轮回点，将返回主界面。" or "本轮修行失败，将返回主界面。"))
+        end
+        if s then
+            s:SetVisible(true)
+            local displayScore = abandonedDaily
+                and state.dailyChallengeResult
+                and state.dailyChallengeResult.score
+                or state.score
+            s:SetText((abandonedDaily and "结算分数: " or "积分: ")
+                .. tostring(displayScore or 0)
+                .. "  击杀: " .. tostring(totalKills))
+        end
+        if r then
+            r:SetVisible(true)
+            r:SetText("最终境界: " .. Config.GetRealm(state.realmIndex).name)
+        end
         if continueButton then continueButton:SetVisible(false) end
         if reincarnateButton then reincarnateButton:SetVisible(false) end
-        if restartButton then restartButton:SetVisible(true) end
+        if reviveButton then
+            local remaining = self.callbacks.getReviveRemaining and self.callbacks.getReviveRemaining() or 0
+            local reviveLabel = reviveButton:FindById("goReviveButtonLabel")
+            if reviveLabel then
+                reviveLabel:SetText("复活（今日剩余" .. tostring(remaining) .. "次）")
+            end
+            reviveButton:SetVisible(state.settlementType ~= "abandoned" and state.adReviveUsed ~= true and remaining > 0)
+        end
+        if confirmButton then confirmButton:SetVisible(true) end
+        if restartButton then restartButton:SetVisible(false) end
     end
 end
 

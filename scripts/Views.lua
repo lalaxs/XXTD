@@ -4,6 +4,7 @@
 local UI = require("urhox-libs/UI")
 local Config = require("Config")
 local STYLE = require("Theme")
+local PlayIcon = require("views.VectorIcons").PlayIcon
 
 local Views = {}
 
@@ -225,6 +226,47 @@ function Views.CreateGameOverPanel(callbacks)
         }
     end
 
+    local function MakeAdButton(id, text, bgColor, pressColor, onClick)
+        return UI.Panel {
+            id = id,
+            visible = false,
+            width = "100%",
+            height = 44,
+            flexDirection = "row",
+            justifyContent = "center",
+            alignItems = "center",
+            gap = 7,
+            borderRadius = 12,
+            borderWidth = 2.5,
+            borderColor = STYLE.GAMEOVER_BTN_BORDER,
+            backgroundColor = bgColor,
+            transition = "scale 0.1s easeOut, opacity 0.1s easeOut",
+            marginTop = 6,
+            onTapStart = function(event, widget)
+                widget:SetStyle({ scale = 0.96, opacity = 0.86, backgroundColor = pressColor })
+            end,
+            onTapEnd = function(event, widget)
+                widget:SetStyle({ scale = 1.0, opacity = 1.0, backgroundColor = bgColor })
+            end,
+            onTap = onClick,
+            children = {
+                PlayIcon {
+                    width = 18,
+                    height = 18,
+                    pointerEvents = "none",
+                },
+                UI.Label {
+                    id = id .. "Label",
+                    text = text,
+                    fontSize = 16,
+                    fontWeight = "bold",
+                    fontColor = STYLE.TEXT_WHITE,
+                    pointerEvents = "none",
+                },
+            },
+        }
+    end
+
     return UI.Panel {
         id = "gameOverPanel",
         visible = false,
@@ -260,6 +302,19 @@ function Views.CreateGameOverPanel(callbacks)
                         text = "本轮修行失败，将直接重开。",
                         width = "100%",
                         fontSize = 14,
+                        lineHeight = 1.45,
+                        flexShrink = 1,
+                        whiteSpace = "normal",
+                        fontColor = STYLE.TEXT_DARK,
+                        textAlign = "center",
+                    },
+                    UI.Label {
+                        id = "goReward",
+                        text = "",
+                        width = "100%",
+                        fontSize = 14,
+                        fontWeight = "bold",
+                        flexShrink = 0,
                         fontColor = STYLE.TEXT_DARK,
                         textAlign = "center",
                     },
@@ -280,8 +335,10 @@ function Views.CreateGameOverPanel(callbacks)
                         gap = 6,
                         marginTop = 8,
                         children = {
+                            MakeButton("goReincarnateButton", "返回主界面", {166, 60, 51, 255}, {130, 42, 36, 255}, callbacks.onReturnToTitle),
                             MakeButton("goContinueButton", "继续当前游戏", {181, 150, 91, 255}, {145, 110, 60, 255}, callbacks.onContinue),
-                            MakeButton("goReincarnateButton", "进入轮回", {166, 60, 51, 255}, {130, 42, 36, 255}, callbacks.onReincarnate),
+                            MakeAdButton("goReviveButton", "复活（今日剩余3次）", {82, 132, 111, 255}, {61, 104, 86, 255}, callbacks.onReviveByAd),
+                            MakeButton("goConfirmButton", "确认", STYLE.GAMEOVER_BTN_BG, STYLE.GAMEOVER_BTN_PRESS, callbacks.onGameOverConfirm),
                             MakeButton("goRestartButton", "直接重开", STYLE.GAMEOVER_BTN_BG, STYLE.GAMEOVER_BTN_PRESS, callbacks.onRestart),
                         },
                     },

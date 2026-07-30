@@ -24,10 +24,7 @@ function LeaderboardService.CalculateFinalScore(state)
     local turnCount = math.max(0, math.floor(state.turn or 0))
     local waveCount = math.max(0, math.floor(GetWaveCount(state)))
     local difficulty = math.max(1, math.floor(state.difficulty or 1))
-    local difficultyMultiplier = 1 + (difficulty - 1) * 0.25
-    local rawScore = baseScore + turnCount * 10 + waveCount * 50
-
-    return math.max(0, math.floor(rawScore * difficultyMultiplier)), {
+    return baseScore, {
         difficulty = difficulty,
         turns = turnCount,
         waves = waveCount,
@@ -38,6 +35,11 @@ end
 
 function LeaderboardService.SubmitFinalResult(state)
     if not state or state.leaderboardSubmitted then return end
+    if state.dailyChallenge and state.dailyChallenge.isAuthorityTime ~= true then
+        print("[Leaderboard] 每日挑战未使用服务器时间，跳过成绩上传")
+        state.leaderboardSubmitted = true
+        return
+    end
     state.leaderboardSubmitted = true
 
     if not clientCloud then
@@ -46,7 +48,7 @@ function LeaderboardService.SubmitFinalResult(state)
     end
 
     local finalScore, summary = LeaderboardService.CalculateFinalScore(state)
-    print(string.format("[Leaderboard] 结算分数=%d（难度%d，%d回合，%d波）",
+    print(string.format("[Leaderboard] 上传积分=%d（难度%d，%d回合，%d波）",
         finalScore, summary.difficulty, summary.turns, summary.waves))
 
     if state.dailyChallenge and state.dailyChallenge.id then
@@ -303,6 +305,33 @@ local function ResolveDailyNickname(entry, callback)
         end,
         onError = function()
             callback()
+        end,
+    })
+end
+
+function LeaderboardService.ResetDailyScore(challengeId, callback)
+    if not challengeId or challengeId == "" then
+        if callback then callback(false, "每日挑战信息不可用") end
+        return
+    end
+    if not clientCloud then
+        if callback then callback(false, "云端排行榜暂不可用") end
+        return
+    end
+
+    local scoreKey = DAILY_SCORE_PREFIX .. challengeId
+    clientCloud:BatchSet():Delete(scoreKey):Save("重置每日挑战成绩", {
+        ok = function()
+            print("[Leaderboard] 今日云端挑战成绩已清空")
+            if callback then callback(true) end
+        end,
+        error = function(_, reason)
+            print("[Leaderboard] 今日云端挑战成绩清空失败: " .. tostring(reason))
+            if callback then callback(false, tostring(reason)) end
+        end,
+        timeout = function()
+            print("[Leaderboard] 今日云端挑战成绩清空超时")
+            if callback then callback(false, "排行榜重置超时") end
         end,
     })
 end

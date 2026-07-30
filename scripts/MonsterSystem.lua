@@ -319,6 +319,18 @@ end
 
 local function CalculateMonsterAttackDamage(state, monster)
     local damage = monster.atk or 0
+    local columnCount = 0
+    for _, other in ipairs(state.monsters or {}) do
+        if other.hp and other.hp > 0 and other.col == monster.col then
+            columnCount = columnCount + 1
+        end
+    end
+    local resonance = RogueRewardSystem.GetModifierValue(state, "enemyColumnResonancePct")
+    local resonanceStacks = math.min(2, math.max(0, columnCount - 1))
+    if resonanceStacks > 0 then
+        damage = math.floor(damage * (1 + resonance * resonanceStacks))
+    end
+
     local attackDown = monster.attackDown or 0
     if attackDown > 0 then
         damage = math.floor(damage * math.max(0, 1 - attackDown))

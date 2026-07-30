@@ -3,6 +3,7 @@ local FieldRewardService = require("rewards.FieldRewardService")
 local RogueRewardSystem = require("rogue.RogueRewardSystem")
 local ReincarnationSystem = require("ReincarnationSystem")
 local DailyChallenge = require("DailyChallenge")
+local ItemSystem = require("ItemSystem")
 
 local FieldRewardSystem = {}
 
@@ -276,8 +277,8 @@ local function PickFallbackCell(state)
     return cells[DailyChallenge.RandomInt(state, #cells)]
 end
 
-local function CreateRewardAtCell(state, col, row, sourceLabel)
-    local rewardQuality = FieldRewardSystem.RollRewardQuality(state)
+local function CreateRewardAtCell(state, col, row, sourceLabel, rewardItem)
+    local rewardQuality = rewardItem and rewardItem.quality or FieldRewardSystem.RollRewardQuality(state)
     local fieldEntity = {
         id = string.format("field_%d_%d_%d", state.turn or 0, col, DailyChallenge.RandomInt(state, 1000000)),
         entityType = "reward",
@@ -288,8 +289,8 @@ local function CreateRewardAtCell(state, col, row, sourceLabel)
         rewardItem = nil,
     }
 
-    local rewardItem = FieldRewardService.CreateRewardItem(state, rewardQuality)
-    if not rewardItem then return false end
+    rewardItem = rewardItem or FieldRewardService.CreateRewardItem(state, rewardQuality)
+    if not rewardItem then return nil end
     fieldEntity.quality = rewardItem.quality or rewardQuality
     fieldEntity.rewardItem = rewardItem
 
@@ -298,7 +299,7 @@ local function CreateRewardAtCell(state, col, row, sourceLabel)
     state.fieldRewardTurnsSinceSpawn = 0
     PushRecentRewardColumn(state, col)
     print(string.format("  [Spawn] %s刷新在第%d列第%d行：%s", sourceLabel or "随机奖励", col, row, fieldEntity.rewardItem.name or "未知道具"))
-    return true
+    return fieldEntity
 end
 
 local function SpawnRewardAtTop(state, sourceLabel)
@@ -318,6 +319,25 @@ function FieldRewardSystem.SpawnFieldRewards(state)
     if DailyChallenge.RandomFloat(state) > spawnChance then return end
 
     SpawnRewardAtTop(state, "随机奖励")
+end
+
+function FieldRewardSystem.SpawnTutorialWeaponReward(state, col)
+    EnsureRewardRuntime(state)
+    local rewardCol = math.min(Config.GRID_COLS, math.max(1, col or 1))
+    local rewardRow = 1
+    if FieldCellBlocked(state, rewardCol, rewardRow) then
+        local fallback = PickFallbackCell(state)
+        if not fallback then return nil end
+        rewardCol, rewardRow = fallback.col, fallback.row
+    end
+
+    local rewardItem = ItemSystem.CreateItemByBaseId(
+        state,
+        Config.ITEM_CATEGORY.WEAPON,
+        "qingfeng_sword",
+        1
+    )
+    return CreateRewardAtCell(state, rewardCol, rewardRow, "新手引导法宝", rewardItem)
 end
 
 function FieldRewardSystem.ForceSpawnFieldReward(state, sourceLabel)

@@ -119,7 +119,8 @@ function WaveSystem.CreateMonsterFromDef(def, col, row, state)
     local hp = math.max(1, math.floor((def.hp or 1) * enemyMul * hpPressureMul * hpGrowth * lateGameHpMul * enemyHpMul + 0.5))
     local atk = math.max(1, math.floor((def.atk or 1) * atkMul * atkGrowth * enemyAtkMul + 0.5))
     local defense = math.max(0, math.floor((def.defense or 0) * defPressureMul * enemyDefenseMul + 0.5))
-    local exp = math.max(1, math.floor((def.exp or 0) * expGlobalMul * expPressureMul * expRewardMul + 0.5))
+    local exp = math.max(1, math.floor((def.exp or 0) * expGlobalMul * expPressureMul * expRewardMul
+        * DailyChallenge.GetEffect(state, "monsterExpMul", 1.0) + 0.5))
 
     return {
         id = def.id,
@@ -136,7 +137,7 @@ function WaveSystem.CreateMonsterFromDef(def, col, row, state)
         baseAtk = def.atk,
         defense = defense,
         baseDefense = def.defense or 0,
-        critChance = def.critChance or 0,
+        critChance = math.max(0, (def.critChance or 0) + RogueRewardSystem.GetModifierValue(state, "enemyCritChancePct")),
         critMultiplier = def.critMultiplier or 1.0,
         exp = exp,
         dropChance = def.dropChance or 0,
@@ -487,7 +488,14 @@ RollSpawnCount = function(state)
         acc = acc + math.max(0, entry.weight or 0)
         if roll <= acc then
             local countMultiplier = DailyChallenge.GetEffect(state, "monsterSpawnCountMul", 1.0)
-            return math.max(1, math.floor((entry.count or 1) * countMultiplier + 0.5))
+                * (1 + RogueRewardSystem.GetModifierValue(state, "enemySpawnCountPct"))
+            local scaledCount = (entry.count or 1) * countMultiplier
+            local count = math.floor(scaledCount)
+            local fraction = scaledCount - count
+            if fraction > 0 and DailyChallenge.RandomFloat(state) < fraction then
+                count = count + 1
+            end
+            return math.max(1, count)
         end
     end
     return 1
@@ -542,6 +550,28 @@ local function GetWaveSpawnChance(state)
     local chance = baseChance + math.max(0, turns - minInterval) * (rules.CHANCE_GROWTH_PER_TURN or 0.10)
     local chanceMultiplier = DailyChallenge.GetEffect(state, "monsterSpawnChanceMul", 1.0)
     return math.min(1.0, math.min(rules.MAX_SPAWN_CHANCE or 0.90, chance) * chanceMultiplier)
+end
+
+function WaveSystem.SpawnTutorialOpeningMonster(state, col)
+    local def = GetDef("shell_imp") or GetDef("wild_boar")
+    if not def then return nil end
+
+    local spawnCol = math.min(Config.GRID_COLS, math.max(1, col or 3))
+    local monster = WaveSystem.CreateMonsterFromDef(def, spawnCol, 1, state)
+    monster.hp = math.min(monster.hp, 8)
+    monster.maxHp = monster.hp
+    monster.baseHp = monster.hp
+    state.nextMonsterInstanceId = (state.nextMonsterInstanceId or 0) + 1
+    monster.instanceId = state.nextMonsterInstanceId
+    monster.spawnAnimTurn = state.turn or 0
+    VisualState.MarkMonsterSpawnPending(state, monster)
+    table.insert(state.monsters, monster)
+    state.realmWaveIndex = 1
+    state.waveCount = 1
+    state.waveTurnsSinceSpawn = 0
+    PushRecentSpawnColumn(state, spawnCol)
+    print(string.format("  [Spawn] 新手引导首只%s刷新在第%d列", def.name or "妖魔", spawnCol))
+    return monster
 end
 
 function WaveSystem.SpawnWave(state)

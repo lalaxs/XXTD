@@ -19,7 +19,7 @@ function GameState.New()
         hp = Config.REALMS[1].maxHp,
         maxHp = Config.REALMS[1].maxHp,
         exp = Config.PLAYER.BASE_EXP,
-        coins = 0,
+        coins = 10,
         realmIndex = 1,  -- 当前境界索引
         lastPillHp = Config.REALMS[1].maxHp,  -- 丹药触发HP基准点
         
@@ -39,6 +39,9 @@ function GameState.New()
         selectedRogueRewards = {},
         rogueRewardHistory = {},
         pendingRogueChoices = nil,
+        pendingRogueStage = nil,
+        pendingRogueStages = nil,
+        pendingRogueStageIndex = nil,
         pendingRogueEvent = nil,
         lastBreakthroughEvent = nil,
         
@@ -51,6 +54,7 @@ function GameState.New()
         endlessWaveIndex = 0,
         endlessBudget = 0,
         endlessKills = 0,
+        totalKills = 0,
         endlessWaveActive = false,
         forceSpawnNextTurn = false,
         difficulty = 1,
@@ -58,6 +62,7 @@ function GameState.New()
         runSeed = os.time(),
         deathSaveRatio = 0,
         deathSaveUsed = false,
+        adReviveUsed = false,
         fieldRewardTurnsSinceSpawn = 0,
         fieldRewardRecentCols = {},
         recentSpawnColumns = {},

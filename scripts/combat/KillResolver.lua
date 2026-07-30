@@ -2,11 +2,13 @@
 -- 怪物死亡、修为、击杀回血与场上奖励移除结算。
 
 local RealmSystem = require("RealmSystem")
+local ReincarnationSystem = require("ReincarnationSystem")
 local Config = require("Config")
 local RogueRewardSystem = require("rogue.RogueRewardSystem")
 local Stats = require("combat.Stats")
 local VisualEventQueue = require("events.VisualEventQueue")
 local DailyChallenge = require("DailyChallenge")
+local TutorialSystem = require("TutorialSystem")
 local DefenseDown = require("combat.DefenseDown")
 
 local KillResolver = {}
@@ -72,7 +74,10 @@ end
 
 local function RollMonsterCoinReward(state, monster)
     local rules = Config.SHOP or {}
-    local dropChance = math.min(1.0, math.max(0.0, rules.KILL_COIN_DROP_CHANCE or 0))
+    local dropChance = (rules.KILL_COIN_DROP_CHANCE or 0)
+        + ReincarnationSystem.GetValue(state, "coinDropChance")
+        + DailyChallenge.GetEffect(state, "killCoinDropChanceAdd", 0)
+    dropChance = math.min(1.0, math.max(0.0, dropChance))
     if DailyChallenge.RandomFloat(state) >= dropChance then
         return 0
     end
@@ -155,12 +160,14 @@ end
 
 local function ResolveMonsterDeaths(state)
     local killHealPct = RogueRewardSystem.GetModifierValue(state, "killHealPct")
+        + DailyChallenge.GetEffect(state, "killHealPctAdd", 0)
     local totalHeal = 0
 
     while true do
         local toRemove = {}
         for i, monster in ipairs(state.monsters) do
             if monster.hp <= 0 then
+                TutorialSystem.OnMonsterKilled(state, monster)
                 TriggerWeaponKillSkills(state, monster)
                 TriggerPoisonExplosion(state, monster)
                 table.insert(toRemove, i)
@@ -168,6 +175,7 @@ local function ResolveMonsterDeaths(state)
                 local expGain = RealmSystem.AddExp(state, expReward, { deferCheck = true })
                 local coinGain = RollMonsterCoinReward(state, monster)
                 state.score = state.score + expGain
+                state.totalKills = (state.totalKills or 0) + 1
                 if state.ascensionMode == true then
                     state.endlessKills = (state.endlessKills or 0) + 1
                 end

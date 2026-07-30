@@ -115,30 +115,54 @@ function DailyChallengeView.Create(callbacks)
         root = nil,
         scoreLabel = nil,
         tagList = nil,
+        continueButton = nil,
         startButton = nil,
+        resetButton = nil,
         startAllowed = false,
         openingDelay = 0,
     }, DailyChallengeView)
 
     self.scoreLabel = UI.Label {
         text = "今日最佳：暂无",
-        width = "100%",
+        width = "auto",
+        flexGrow = 1,
+        flexShrink = 1,
+        paddingLeft = 10,
         fontSize = 15,
         fontWeight = "bold",
         fontColor = COLORS.gold,
-        textAlign = "center",
+        textAlign = "left",
     }
     self.tagList = UI.Panel {
         width = "100%",
         gap = 8,
         flexDirection = "column",
     }
+    self.continueButton = MakeButton("继续今日挑战", {109, 159, 144, 255}, function()
+        if self.callbacks.onContinue then
+            self.callbacks.onContinue()
+        end
+    end)
+    self.continueButton:SetVisible(false)
     self.startButton = MakeButton("开始今日挑战", COLORS.button, function()
         if self.startAllowed and self.callbacks.onStart then
             self.startAllowed = false
             self.callbacks.onStart()
         end
     end)
+    self.resetButton = MakeButton("重置", {107, 125, 120, 255}, function()
+        if self.callbacks.onReset then
+            self.callbacks.onReset()
+        end
+    end)
+    self.resetButton:SetStyle({
+        width = 80,
+        height = 40,
+        flexGrow = 0,
+        flexShrink = 0,
+        fontSize = 13,
+        marginRight = 6,
+    })
 
     self.root = UI.Panel {
         visible = false,
@@ -223,33 +247,48 @@ function DailyChallengeView.Create(callbacks)
                     },
                     UI.Panel {
                         width = "100%",
+                        flexDirection = "row",
+                        justifyContent = "space-between",
+                        alignItems = "center",
                         flexShrink = 0,
                         paddingVertical = 7,
+                        paddingHorizontal = 6,
                         backgroundColor = COLORS.panelInner,
                         borderRadius = 10,
                         borderWidth = 1,
                         borderColor = COLORS.borderLight,
-                        children = {self.scoreLabel},
+                        children = {
+                            self.scoreLabel,
+                            self.resetButton,
+                        },
                     },
                     UI.Panel {
                         width = "100%",
-                        flexDirection = "row",
+                        flexDirection = "column",
                         gap = 8,
                         flexShrink = 0,
                         children = {
+                            self.continueButton,
                             UI.Panel {
-                                width = "50%",
+                                width = "100%",
+                                flexDirection = "row",
+                                gap = 8,
                                 children = {
-                                    MakeButton("查看排行榜", {107, 125, 120, 255}, function()
-                                        if self.callbacks.onLeaderboard then
-                                            self.callbacks.onLeaderboard()
-                                        end
-                                    end),
+                                    UI.Panel {
+                                        width = "50%",
+                                        children = {
+                                            MakeButton("查看排行榜", {107, 125, 120, 255}, function()
+                                                if self.callbacks.onLeaderboard then
+                                                    self.callbacks.onLeaderboard()
+                                                end
+                                            end),
+                                        },
+                                    },
+                                    UI.Panel {
+                                        width = "50%",
+                                        children = {self.startButton},
+                                    },
                                 },
-                            },
-                            UI.Panel {
-                                width = "50%",
-                                children = {self.startButton},
                             },
                         },
                     },
@@ -275,17 +314,38 @@ function DailyChallengeView:Show(challenge, progress)
     end
 
     local bestScore = progress.bestScore or 0
+    local hasAttempted = progress.freeAttemptUsed == true
+        or progress.completed == true
+        or (progress.attemptsUsed or 0) > 0
+        or bestScore > 0
     self.scoreLabel:SetText(bestScore > 0 and ("今日最佳：" .. tostring(bestScore)) or "今日最佳：暂无")
+    self.continueButton:SetVisible(progress.hasRunSave == true)
+    self.resetButton:SetVisible(challenge.available == true and hasAttempted)
 
-    if progress.completed == true then
+    if progress.saveLoading == true then
+        self.startButton:SetText("正在读取存档...")
+        self.startButton:SetDisabled(true)
+        self.continueButton:SetDisabled(true)
+        self.startAllowed = false
+        self.openingDelay = 0
+    elseif challenge.available ~= true then
+        self.continueButton:SetDisabled(false)
+        self.startButton:SetText("开始今日挑战")
+        self.startButton:SetDisabled(false)
+        self.startAllowed = true
+        self.openingDelay = 0
+    elseif progress.completed == true then
+        self.continueButton:SetDisabled(false)
         self.startButton:SetText("今日挑战已完成")
         self.startButton:SetDisabled(true)
         self.startAllowed = false
     elseif progress.freeAttemptUsed == true then
+        self.continueButton:SetDisabled(false)
         self.startButton:SetText("今日次数已用尽")
         self.startButton:SetDisabled(true)
         self.startAllowed = false
     else
+        self.continueButton:SetDisabled(false)
         self.startButton:SetText("开始今日挑战")
         self.startButton:SetDisabled(true)
         self.startAllowed = false

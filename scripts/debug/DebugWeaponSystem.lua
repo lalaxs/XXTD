@@ -7,6 +7,7 @@ local WaveSystem = require("WaveSystem")
 local WeaponDefs = require("config.WeaponDefs")
 local RogueRewardDefs = require("config.RogueRewardDefs")
 local RogueRewardSystem = require("rogue.RogueRewardSystem")
+local RealmSystem = require("RealmSystem")
 
 local DebugWeaponSystem = {}
 
@@ -67,6 +68,8 @@ local function EnsureSession(state)
         originalRogueRewardHistory = CopyArray(state.rogueRewardHistory),
         originalPendingRogueChoices = state.pendingRogueChoices,
         originalPendingRogueStage = state.pendingRogueStage,
+        originalPendingRogueStages = state.pendingRogueStages,
+        originalPendingRogueStageIndex = state.pendingRogueStageIndex,
         originalPendingRogueEvent = state.pendingRogueEvent,
         originalShouldSpawnBreakthroughWave = state.shouldSpawnBreakthroughWave,
         originalForceSpawnNextTurn = state.forceSpawnNextTurn,
@@ -140,10 +143,12 @@ end
 function DebugWeaponSystem.CreateSkillChoices(state)
     EnsureSession(state)
 
-    local choices = RogueRewardSystem.CreateBreakthroughChoices(state)
+    local choices = RogueRewardSystem.CreateBreakthroughChoices(state, { "attack" })
     if #choices == 0 then
         state.pendingRogueChoices = nil
         state.pendingRogueStage = nil
+        state.pendingRogueStages = nil
+        state.pendingRogueStageIndex = nil
         state.pendingRogueEvent = nil
         return false, "当前没有可用于修炼提升的肉鸽选项"
     end
@@ -217,6 +222,20 @@ function DebugWeaponSystem.PrepareFieldRewardScenario(state, rewardCategory)
     return true
 end
 
+function DebugWeaponSystem.TriggerAscensionSuccess(state)
+    if not state then return false end
+
+    state.isGameOver = false
+    state.isVictory = false
+    state.victoryReason = nil
+    state.settlementType = nil
+    state.ascensionAchieved = false
+    state.ascensionMode = false
+    RealmSystem.EnterAscension(state)
+    print("[Debug Weapon] 已触发飞升成功结算")
+    return state.isGameOver == true and state.victoryReason == "ascension"
+end
+
 function DebugWeaponSystem.SetPlayerHpRatio(state, ratio)
     EnsureSession(state)
     ratio = math.min(1, math.max(0.01, ratio or 1))
@@ -236,6 +255,8 @@ function DebugWeaponSystem.Clear(state)
     state.maxHp = session.originalMaxHp
     state.pendingRogueChoices = session.originalPendingRogueChoices
     state.pendingRogueStage = session.originalPendingRogueStage
+    state.pendingRogueStages = session.originalPendingRogueStages
+    state.pendingRogueStageIndex = session.originalPendingRogueStageIndex
     state.pendingRogueEvent = session.originalPendingRogueEvent
     state.shouldSpawnBreakthroughWave = session.originalShouldSpawnBreakthroughWave
     state.forceSpawnNextTurn = session.originalForceSpawnNextTurn

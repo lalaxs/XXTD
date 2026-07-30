@@ -19,6 +19,10 @@ local function HasActiveMonster(state)
     return false
 end
 
+function RogueRewardActions.Refresh(state)
+    return RogueRewardSystem.RefreshChoices(state)
+end
+
 function RogueRewardActions.Select(state, rewardId)
     local result = RogueRewardSystem.SelectChoice(state, rewardId)
     if result.ok then

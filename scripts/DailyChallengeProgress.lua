@@ -99,6 +99,28 @@ function DailyChallengeProgress.Complete(progress, score)
     return true, finalScore > previousBest
 end
 
+function DailyChallengeProgress.Reset(progress)
+    if not progress then return nil end
+    local reset = NewProgress(progress.challengeId)
+    WriteSave(reset)
+    print("[Daily] 今日挑战进度已重置")
+    return reset
+end
+
+function DailyChallengeProgress.DeleteSave()
+    if not fileSystem or not fileSystem:FileExists(SAVE_PATH) then
+        return true
+    end
+
+    local deleted = fileSystem:Delete(SAVE_PATH)
+    if deleted then
+        print("[Daily] 每日挑战进度已删除")
+    else
+        print("[Daily] 每日挑战进度删除失败")
+    end
+    return deleted
+end
+
 function DailyChallengeProgress.GetDisplayState(progress)
     if not progress then
         return {

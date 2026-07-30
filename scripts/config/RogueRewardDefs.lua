@@ -48,10 +48,10 @@ local weapons = {
 -- 解锁卡只介绍 Q1 已有的初始特效，不展示后续品质成长。
 local INITIAL_WEAPON_DESCRIPTIONS = {
     qingfeng_sword = "攻击生命高于 80% 的敌人时，额外造成 20% 武器伤害。",
-    chiyan_spear = "穿透攻击会叠加灼烧，每层持续 3 回合，每回合造成 5% 武器伤害。",
+    chiyan_spear = "攻击时叠加灼烧，每层持续 3 回合，每回合造成 5% 武器伤害。",
     qingyu_fan = "攻击主目标，并对 1 个额外目标造成 20% 武器伤害的溅射。",
     ziqi_gourd = "攻击时有 8% 概率回复相当于 1% 武器伤害的生命，最低回复 1 点。",
-    jinguang_ring = "攻击时有 10% 概率将普通敌人击退 1 格。",
+    jinguang_ring = "攻击时有 10% 概率将普通敌人击退 2 格。",
     qingyin_qin = "攻击时有 20% 概率定身敌人 1 回合，成功后进入 4 回合定身免疫。",
     baigu_staff = "降低敌人 10%～20% 防御，敌人生命越高削防越强，持续 2 回合。",
     fuyao_chain = "基础暴击率为 25%，暴击伤害为 200%。",
@@ -59,7 +59,7 @@ local INITIAL_WEAPON_DESCRIPTIONS = {
     double_blade_chain = "每次攻击分两段结算，每段造成 45% 武器伤害并独立判定暴击。",
     bishui_sword = "攻击必定暴击，暴击伤害为 115%。",
     lingmo_brush = "玩家生命不高于 30% 时，武器伤害提高 20%。",
-    pozhen_spear = "穿透攻击完全无视敌人防御。",
+    pozhen_spear = "攻击时无视敌人防御。",
     taiji_sword = "攻击生命低于 20% 的敌人时，额外造成 15% 武器伤害。",
     huxin_pearl = "降低敌人 10% 攻击 2 回合，并额外造成等同削减攻击力的伤害。",
 }
@@ -344,7 +344,7 @@ local weaponSkills = {
 - 击退距离额外增加1格；
 - 敌人每实际移动1格，额外受到金光环武器伤害30%的伤害；
 - 额外伤害不能暴击；
-- 若第二格被阻挡，只按实际移动距离结算。]=] },
+- 若击退途中被阻挡，只按实际移动距离结算。]=] },
     { skillId = "ring_return_light", name = "回光追轮", weaponId = "jinguang_ring", desc = [=[成功击退敌人后，立即追击一次，造成武器伤害50%的伤害。
 
 - 属于额外攻击；
@@ -546,21 +546,24 @@ local common = {
     { "crit_chance", "灵台一闪", "暴击率 +6%", "critChance", 0.06, 3, "attack", "image/talent/common_attack.png" },
     { "crit_damage", "破妄", "暴击伤害 +25%", "critDamagePct", 0.25, 2, "attack", "image/talent/common_crit.png" },
     { "elite_damage", "斩将", "对精锐/头目伤害 +15%", "eliteDamagePct", 0.15, 2, "attack", "image/talent/common_reduce.png" },
-    { "max_hp", "气海拓宽", "最大气血 +15%", "maxHpPct", 0.15, 3, "player" },
+    { "max_hp", "气海拓宽", "最大气血 +15%", "maxHpPct", 0.15, 3, "player", "image/talent/common_hp.png" },
     { "armor_defense", "玄甲", "护甲防御 +15%", "armorDefensePct", 0.15, 3, "defense", "image/talent/common_armor.png" },
     { "reduction", "金刚护体", "最终减伤 +6%", "damageTakenReduction", 0.06, 2, "defense", "image/talent/common_armor.png" },
-    { "kill_heal", "噬灵", "击杀回血 1.5%最大气血", "killHealPct", 0.015, 2, "player" },
-    { "reward_spawn", "寻宝诀", "场上奖励出现率 +15%", "fieldRewardSpawnPct", 0.15, 2, "player" },
-    { "reward_quality", "天运", "场上奖励品质 +1档", "fieldRewardQualityShift", 1, 2, "player" },
+    { "kill_heal", "噬灵", "击杀回血 1.5%最大气血", "killHealPct", 0.015, 2, "player", "image/talent/common_regen.png" },
+    { "reward_spawn", "寻宝诀", "场上奖励出现率 +15%", "fieldRewardSpawnPct", 0.15, 2, "player", "image/talent/coin.png" },
+    { "reward_quality", "天运", "场上奖励品质 +1档", "fieldRewardQualityShift", 1, 2, "player", "image/talent/shop.png" },
 }
 for _, reward in ipairs(common) do
     table.insert(defs, { id = "common:" .. reward[1], name = reward[2], abilityName = reward[2], abilityDesc = reward[3], category = "通用", desc = reward[3], kind = "common", icon = reward[8], modifier = { stat = reward[4], value = reward[5] }, rewardGroup = reward[7], weight = 3, maxStacks = reward[6], immediate = true })
 end
 
 local enemy = {
-    { "enemy_hp", "妖躯淬炼", "敌方生命值 +20%", "enemyHpPct", 0.20, 3 },
-    { "enemy_atk", "凶煞暴涨", "敌方攻击力 +15%", "enemyAtkPct", 0.15, 3 },
-    { "enemy_defense", "铁壁妖甲", "敌方防御力 +20%", "enemyDefensePct", 0.20, 3 },
+    { "enemy_hp", "妖躯淬炼", "敌方最大生命值 +15%", "enemyHpPct", 0.15, 3 },
+    { "enemy_atk", "凶煞暴涨", "敌方攻击力 +12%", "enemyAtkPct", 0.12, 3 },
+    { "enemy_defense", "铁壁妖甲", "敌方防御力 +15%", "enemyDefensePct", 0.15, 3 },
+    { "enemy_crit_chance", "血月凶兆", "敌方暴击率 +10个百分点", "enemyCritChancePct", 0.10, 2 },
+    { "enemy_spawn_count", "群妖并起", "每波敌人数量 +10%", "enemySpawnCountPct", 0.10, 2 },
+    { "enemy_column_resonance", "妖魂共鸣", "同列每多一个存活敌人，该列敌人攻击力 +3%，最多计算2个", "enemyColumnResonancePct", 0.03, 2 },
 }
 for _, reward in ipairs(enemy) do
     table.insert(defs, {

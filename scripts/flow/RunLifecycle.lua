@@ -5,6 +5,8 @@ local RealmSystem = require("RealmSystem")
 local Stats = require("combat.Stats")
 local ReincarnationSystem = require("ReincarnationSystem")
 local DailyChallenge = require("DailyChallenge")
+local VisualState = require("VisualState")
+local TutorialSystem = require("TutorialSystem")
 
 local RunLifecycle = {}
 
@@ -68,6 +70,45 @@ function RunLifecycle.ResetOpeningWave(state)
     WaveSystem.ForceSpawnWave(state)
 end
 
+function RunLifecycle.RestoreSavedState(savedState)
+    if type(savedState) ~= "table" then return nil end
+
+    local state = GameState.New()
+    for key, value in pairs(savedState) do
+        state[key] = CopyTable(value)
+    end
+
+    state.slots = state.slots or {}
+    state.monsters = state.monsters or {}
+    state.fieldRewards = state.fieldRewards or {}
+    state.dropQueue = state.dropQueue or {}
+    state.buffs = state.buffs or {}
+    state.weaponCombatState = state.weaponCombatState or {}
+    state.runWeapons = state.runWeapons or { qingfeng_sword = true }
+    state.runArmors = state.runArmors or { dark_iron_shield = true }
+    state.weaponUpgradeLevels = state.weaponUpgradeLevels or {}
+    state.modifiers = state.modifiers or {}
+    state.selectedRogueRewards = state.selectedRogueRewards or {}
+    state.rogueRewardHistory = state.rogueRewardHistory or {}
+    state.visual = VisualState.Create()
+    state.visualEventQueue = nil
+    state.lastDamageDealt = {}
+    state.lastAttackEvents = {}
+    state.lastMonsterAttackEvents = {}
+    state.lastCoinDropEvents = {}
+    state.lastPlayerDamage = 0
+    state.lastPlayerDamageCrit = false
+    state.pillConsumeMessages = {}
+    state.visualStatusEvents = {}
+    state.lastBreakthroughEvent = nil
+    state.dropMessages = {}
+    state.reincarnationTriggered = false
+    state.turnLog = {}
+    state.leaderboardSubmitted = false
+    ReincarnationSystem.EnsureState(state)
+    return state
+end
+
 function RunLifecycle.StartNewGame(progress, runOptions)
     local state = GameState.New()
     if runOptions and runOptions.dailyChallenge then
@@ -80,7 +121,14 @@ function RunLifecycle.StartNewGame(progress, runOptions)
     state.endlessBudget = 0
     state.endlessKills = 0
     state.endlessWaveActive = false
-    WaveSystem.ForceSpawnWave(state)
+
+    if runOptions and runOptions.firstRunTutorial == true then
+        TutorialSystem.Begin(state)
+        local monster = WaveSystem.SpawnTutorialOpeningMonster(state, 3)
+        TutorialSystem.RegisterOpeningMonster(state, monster)
+    else
+        WaveSystem.ForceSpawnWave(state)
+    end
 
     if progress then
         RunLifecycle.RestorePermanentProgress(state, progress)
@@ -93,9 +141,36 @@ end
 
 function RunLifecycle.RestartKeepingProgress(state)
     if DailyChallenge.IsActive(state) then
-        return RunLifecycle.StartNewGame(nil, { dailyChallenge = DailyChallenge.ResolveToday() })
+        local challenge = DailyChallenge.ResolveToday()
+        if challenge.available ~= true then
+            print("[Daily] 服务器时间不可用，无法重开每日挑战")
+            return state
+        end
+        return RunLifecycle.StartNewGame(nil, { dailyChallenge = challenge })
     end
     return RunLifecycle.StartNewGame(RunLifecycle.CapturePermanentProgress(state))
+end
+
+function RunLifecycle.AbandonRun(state)
+    if not state or state.isGameOver then return state end
+
+    state.hp = 0
+    state.isGameOver = true
+    state.isVictory = false
+    state.victoryReason = "abandoned"
+    state.settlementType = "abandoned"
+    state.canReincarnate = false
+    state.reincarnationClaimed = true
+    state.canContinueRun = false
+    state.pendingRogueEvent = nil
+    state.pendingRogueChoices = nil
+    state.pendingRogueStage = nil
+    state.pendingRogueStages = nil
+    state.pendingRogueStageIndex = nil
+    state.shouldSpawnBreakthroughWave = false
+    state.forceSpawnNextTurn = false
+    print("[GameOver] 玩家放弃当前轮回，不获得轮回点")
+    return state
 end
 
 function RunLifecycle.AbandonRunKeepingProgress(state)

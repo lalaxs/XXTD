@@ -55,7 +55,9 @@ function RealmSystem.EnterAscension(state)
     state.victoryReason = "ascension"
     state.settlementType = "ascension_reached"
     state.canContinueRun = true
-    state.canReincarnate = true
+    ReincarnationSystem.GrantReincarnationPoint(state)
+    state.reincarnationClaimed = true
+    state.canReincarnate = false
     state.exp = 0
     state.endlessWaveIndex = 0
     state.endlessBudget = 0
@@ -63,14 +65,17 @@ function RealmSystem.EnterAscension(state)
     state.endlessWaveActive = false
     state.pendingRogueEvent = nil
     state.pendingRogueChoices = nil
+    state.pendingRogueStage = nil
+    state.pendingRogueStages = nil
+    state.pendingRogueStageIndex = nil
     state.shouldSpawnBreakthroughWave = false
     state.forceSpawnNextTurn = false
     state.maxUnlockedDifficulty = math.min(Config.MAX_DIFFICULTY or 5,
         math.max(state.maxUnlockedDifficulty or 1, (state.difficulty or 1) + 1))
 
     Stats.RecalculateMaxHp(state)
-    VisualEventQueue.PushDropMessage(state, "渡劫后期突破，飞升成功")
-    print(string.format("[Ascension] 飞升成功，保留当前战场，继续按钮可开启无尽模式；当前敌人=%d",
+    VisualEventQueue.PushDropMessage(state, "渡劫后期突破，飞升成功，获得1轮回点")
+    print(string.format("[Ascension] 飞升成功并获得1轮回点，保留当前战场，继续按钮可开启无尽模式；当前敌人=%d",
         #(state.monsters or {})))
 end
 
@@ -81,7 +86,7 @@ function RealmSystem.FinishAscensionRun(state)
     state.isGameOver = true
     state.victoryReason = "ascension_death"
     state.settlementType = "ascension_death"
-    state.canReincarnate = true
+    state.canReincarnate = false
     state.canContinueRun = false
 end
 
@@ -115,13 +120,16 @@ function RealmSystem.CheckRealmUp(state)
         }
         VisualEventQueue.PushBreakthrough(state, breakthroughEvent)
 
-        if isMajorBreakthrough then
+        local rogueStages = Config.GetRogueStages(state.realmIndex)
+        if rogueStages and #rogueStages > 0 then
             state.pendingRogueEvent = breakthroughEvent
-            RogueRewardSystem.CreateBreakthroughChoices(state)
+            RogueRewardSystem.CreateBreakthroughChoices(state, rogueStages)
         else
             state.pendingRogueEvent = nil
             state.pendingRogueChoices = nil
-            state.shouldSpawnBreakthroughWave = false
+            state.pendingRogueStage = nil
+            state.pendingRogueStages = nil
+            state.pendingRogueStageIndex = nil
         end
 
         print(string.format("[Realm Up] 境界突破: %s! 气血=%d/%d%s",

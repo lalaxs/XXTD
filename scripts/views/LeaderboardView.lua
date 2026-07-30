@@ -266,6 +266,7 @@ function LeaderboardView.Create(callbacks)
     self.scoreTab = UI.Button {
         text = "玩家排行",
         width = 86,
+        height = 35,
         fontSize = 13,
         fontWeight = "bold",
         borderRadius = 8,

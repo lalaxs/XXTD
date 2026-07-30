@@ -19,13 +19,17 @@ local COLORS = {
     red = {166, 60, 51, 255},
     redPressed = {130, 42, 36, 255},
     gold = {181, 150, 91, 255},
-    green = {107, 125, 120, 255},
+    green = {82, 132, 111, 255},
+    greenPressed = {61, 104, 86, 255},
     disabled = {122, 118, 130, 150},
 }
 
 local CoinIcon = VectorIcons.CoinIcon
+local PlayIcon = VectorIcons.PlayIcon
 
 local CATEGORY_LABELS = {
+    [Config.ITEM_CATEGORY.WEAPON] = "攻击法宝",
+    [Config.ITEM_CATEGORY.ARMOR] = "防御法宝",
     [Config.ITEM_CATEGORY.PILL] = "丹药",
     [Config.ITEM_CATEGORY.TALISMAN] = "符咒",
 }
@@ -58,8 +62,8 @@ local function DescribeItem(item)
     return "可主动使用的消耗品"
 end
 
-local function CreatePriceButton(entry, index, coins, onBuy)
-    local affordable = not entry.purchased and coins >= (entry.price or 0)
+local function CreatePriceButton(entry, index, coins, onBuy, onClaimAd)
+    local affordable = entry.adReward or (not entry.purchased and coins >= (entry.price or 0))
     local children
     if entry.purchased then
         children = {
@@ -71,20 +75,41 @@ local function CreatePriceButton(entry, index, coins, onBuy)
             },
         }
     else
-        children = {
-            CoinIcon {
-                width = 25,
-                height = 25,
+        children = entry.adReward and {
+            PlayIcon {
+                width = 15,
+                height = 15,
                 pointerEvents = "none",
             },
             UI.Label {
+                text = "领取",
+                fontSize = 13,
+                fontWeight = "bold",
+                fontColor = {255, 255, 255, 255},
+                pointerEvents = "none",
+            },
+        } or {
+            UI.Label {
+                text = "购买",
+                fontSize = 13,
+                fontWeight = "bold",
+                fontColor = {255, 255, 255, 255},
+            },
+        }
+        if not entry.adReward then
+            table.insert(children, CoinIcon {
+                width = 25,
+                height = 25,
+                pointerEvents = "none",
+            })
+            table.insert(children, UI.Label {
                 text = tostring(entry.price or 0),
                 fontSize = 15,
                 fontWeight = "bold",
                 fontColor = {255, 255, 255, 255},
                 pointerEvents = "none",
-            },
-        }
+            })
+        end
     end
 
     return UI.Panel {
@@ -94,23 +119,34 @@ local function CreatePriceButton(entry, index, coins, onBuy)
         justifyContent = "center",
         alignItems = "center",
         gap = 4,
-        backgroundColor = affordable and COLORS.red or COLORS.disabled,
+        backgroundColor = affordable and COLORS.green or COLORS.disabled,
         borderRadius = 8,
-        transition = "scale 0.1s easeOut, opacity 0.1s easeOut",
+        transition = "scale 0.1s easeOut, opacity 0.1s easeOut, backgroundColor 0.1s easeOut",
         onTapStart = function(event, widget)
-            if affordable then widget:SetStyle({ scale = 0.96, opacity = 0.86 }) end
+            if affordable then
+                widget:SetStyle({ scale = 0.96, opacity = 0.86, backgroundColor = COLORS.greenPressed })
+            end
         end,
         onTapEnd = function(event, widget)
-            widget:SetStyle({ scale = 1.0, opacity = 1.0 })
+            widget:SetStyle({
+                scale = 1.0,
+                opacity = 1.0,
+                backgroundColor = affordable and COLORS.green or COLORS.disabled,
+            })
         end,
         onTap = function()
-            if affordable and onBuy then onBuy(index) end
+            if not affordable then return end
+            if entry.adReward then
+                if onClaimAd then onClaimAd(index) end
+            elseif onBuy then
+                onBuy(index)
+            end
         end,
         children = children,
     }
 end
 
-local function CreateItemCard(entry, index, coins, onBuy)
+local function CreateItemCard(entry, index, coins, onBuy, onClaimAd)
     local item = entry.item
     local quality = Config.QUALITY[item.quality] or Config.QUALITY[1]
     return UI.Panel {
@@ -171,7 +207,7 @@ local function CreateItemCard(entry, index, coins, onBuy)
                 textAlign = "center",
                 whiteSpace = "normal",
             },
-            CreatePriceButton(entry, index, coins, onBuy),
+            CreatePriceButton(entry, index, coins, onBuy, onClaimAd),
         },
     }
 end
@@ -186,6 +222,7 @@ function ShopView.Create(callbacks)
         refreshButton = nil,
         itemsPanel = nil,
         refreshEnabled = false,
+        adRefreshEnabled = false,
         callbacks = callbacks,
     }, ShopView)
 
@@ -213,7 +250,7 @@ function ShopView.Create(callbacks)
         flexGrow = 1,
     }
     self.refreshButton = UI.Panel {
-        width = 160,
+        width = 142,
         height = 40,
         flexDirection = "row",
         justifyContent = "center",
@@ -249,10 +286,51 @@ function ShopView.Create(callbacks)
             self.refreshCostLabel,
         },
     }
+    self.adRefreshButton = UI.Panel {
+        width = 142,
+        height = 40,
+        flexDirection = "row",
+        justifyContent = "center",
+        alignItems = "center",
+        gap = 7,
+        backgroundColor = COLORS.green,
+        borderRadius = 8,
+        borderWidth = 2,
+        borderColor = COLORS.border,
+        transition = "scale 0.1s easeOut, opacity 0.1s easeOut",
+        onTapStart = function(event, widget)
+            if self.adRefreshEnabled then
+                widget:SetStyle({ scale = 0.96, opacity = 0.86, backgroundColor = COLORS.greenPressed })
+            end
+        end,
+        onTapEnd = function(event, widget)
+            widget:SetStyle({ scale = 1.0, opacity = 1.0, backgroundColor = COLORS.green })
+        end,
+        onTap = function()
+            if self.adRefreshEnabled and self.callbacks.onAdRefresh then
+                self.callbacks.onAdRefresh()
+            end
+        end,
+        children = {
+            PlayIcon {
+                width = 18,
+                height = 18,
+                pointerEvents = "none",
+            },
+            UI.Label {
+                text = "刷新",
+                fontSize = 14,
+                fontWeight = "bold",
+                fontColor = {255, 255, 255, 255},
+                pointerEvents = "none",
+            },
+        },
+    }
+
     self.panel = UI.Panel {
         width = "90%",
         maxWidth = 680,
-        minHeight = 590,
+        minHeight = 650,
         padding = 16,
         gap = 10,
         backgroundColor = COLORS.panel,
@@ -308,20 +386,7 @@ function ShopView.Create(callbacks)
                 paddingTop = 2,
                 children = {
                     self.refreshButton,
-                    UI.Button {
-                        text = "离开商铺",
-                        width = 140,
-                        height = 40,
-                        fontSize = 14,
-                        fontWeight = "bold",
-                        backgroundColor = COLORS.green,
-                        pressedBackgroundColor = {78, 98, 92, 255},
-                        textColor = {255, 255, 255, 255},
-                        borderRadius = 8,
-                        onClick = function()
-                            if self.callbacks.onClose then self.callbacks.onClose() end
-                        end,
-                    },
+                    self.adRefreshButton,
                 },
             },
         },
@@ -370,17 +435,21 @@ function ShopView:Refresh(state)
     for index, entry in ipairs(pendingShop and pendingShop.items or {}) do
         self.itemsPanel:AddChild(CreateItemCard(entry, index, state.coins or 0, function(itemIndex)
             if self.callbacks.onBuy then self.callbacks.onBuy(itemIndex) end
+        end, function(itemIndex)
+            if self.callbacks.onClaimAdItem then self.callbacks.onClaimAdItem(itemIndex) end
         end))
     end
 
     local rules = Config.SHOP or {}
-    local refreshCost = math.max(1, math.floor((pendingShop and pendingShop.refreshCost) or rules.REFRESH_BASE_PRICE or 10))
+    local refreshCost = math.max(1, math.floor((pendingShop and pendingShop.refreshCost) or rules.REFRESH_BASE_PRICE or 3))
     self.refreshCostLabel:SetText(tostring(refreshCost))
     self.refreshEnabled = (state.coins or 0) >= refreshCost
     self.refreshButton:SetStyle({
         backgroundColor = self.refreshEnabled and COLORS.gold or COLORS.disabled,
         opacity = self.refreshEnabled and 1 or 0.72,
     })
+    self.adRefreshEnabled = true
+    self.adRefreshButton:SetStyle({ opacity = 1.0 })
 end
 
 function ShopView:Show(state)

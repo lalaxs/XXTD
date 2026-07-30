@@ -150,6 +150,10 @@ function DebugWeaponView:init(callbacks)
             MakeButton("掉落防具", function() if self.callbacks.onFieldRewardScenario then self.callbacks.onFieldRewardScenario("armor") end end),
             MakeButton("精锐目标", function() if self.callbacks.onScenario then self.callbacks.onScenario("elite") end end),
             MakeButton("头目目标", function() if self.callbacks.onScenario then self.callbacks.onScenario("boss") end end),
+            MakeButton("飞升成功", function()
+                self:Hide()
+                if self.callbacks.onAscensionSuccess then self.callbacks.onAscensionSuccess() end
+            end, { width = "100%", backgroundColor = COLORS.red, pressedBackgroundColor = COLORS.redPressed }),
         },
     }
 

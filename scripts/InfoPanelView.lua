@@ -126,7 +126,7 @@ local function BuildWeaponSummary(item, state)
         end
     elseif baseId == "jinguang_ring" then
         AddLine(parts, "攻击同列最近敌人")
-        AddLine(parts, string.format("每次攻击有%d%%概率将普通敌人击退1格；精英有50%%概率抵抗，头目免疫", Percent(item.knockbackChance or 0.10)))
+        AddLine(parts, string.format("每次攻击有%d%%概率将普通敌人击退2格；精英有50%%概率抵抗，头目免疫", Percent(item.knockbackChance or 0.10)))
         if (item.collisionDamagePct or 0) > 0 then
             AddLine(parts, string.format("击退路线被敌人阻挡时，对阻挡者额外造成%d%%武器伤害", Percent(item.collisionDamagePct)))
         end

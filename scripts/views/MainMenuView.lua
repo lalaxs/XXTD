@@ -1,8 +1,7 @@
 -- views/MainMenuView.lua
--- 右下角功能入口弹窗：轮回强化 / 机缘 / 设置 / 放弃当前轮回。
+-- 右下角功能入口弹窗：轮回强化 / 机缘 / 设置 / 放弃 / 保存并返回主界面。
 
 local UI = require("urhox-libs/UI")
-local StatusPresenter = require("views.StatusPresenter")
 
 local MainMenuView = {}
 MainMenuView.__index = MainMenuView
@@ -16,10 +15,9 @@ local COLORS = {
     muted = {120, 95, 68, 255},
     button = {160, 120, 60, 255},
     danger = {165, 62, 50, 255},
-    gold = {255, 200, 60, 255},
 }
 
-local function MakeButton(text, color, onClick)
+local function MakeButton(text, color, onClick, onUIClick)
     return UI.Button {
         text = text,
         width = "100%",
@@ -32,135 +30,15 @@ local function MakeButton(text, color, onClick)
         backgroundColor = color or COLORS.button,
         pressedBackgroundColor = {120, 88, 45, 255},
         fontColor = {255, 245, 230, 255},
-        onClick = onClick,
+        onClick = function()
+            if onUIClick then onUIClick() end
+            if onClick then onClick() end
+        end,
     }
 end
 
-local function MakeSectionTitle(text)
-    return UI.Label {
-        text = text,
-        width = "100%",
-        fontSize = 16,
-        fontWeight = "bold",
-        fontColor = COLORS.title,
-    }
-end
-
-local function MakeStatusChip(status)
-    local isDebuff = status.kind == "debuff"
-    local isShield = status.name == "护盾"
-    local bgColor = isShield and {72, 118, 162, 245} or (isDebuff and {155, 70, 58, 245} or {83, 132, 88, 245})
-    local borderColor = isShield and {42, 76, 112, 255} or (isDebuff and {110, 44, 38, 255} or {50, 92, 56, 255})
-    local valueColor = isShield and {210, 238, 255, 255} or (isDebuff and {255, 224, 194, 255} or {236, 255, 207, 255})
-    local descColor = isShield and {224, 242, 255, 230} or (isDebuff and {255, 236, 218, 230} or {232, 250, 222, 230})
-    local valueText = status.valueText or (status.turns and status.turns > 0 and tostring(status.turns) .. "回合") or ""
-    return UI.Panel {
-        width = "48%",
-        minHeight = 50,
-        paddingHorizontal = 10,
-        paddingVertical = 7,
-        gap = 3,
-        backgroundColor = bgColor,
-        borderRadius = 10,
-        borderWidth = 2,
-        borderColor = borderColor,
-        flexShrink = 0,
-        children = {
-            UI.Panel {
-                width = "100%",
-                flexDirection = "row",
-                justifyContent = "space-between",
-                alignItems = "center",
-                gap = 6,
-                children = {
-                    UI.Label {
-                        text = status.name or "状态",
-                        flexGrow = 1,
-                        flexShrink = 1,
-                        fontSize = 14,
-                        fontWeight = "bold",
-                        fontColor = {255, 250, 235, 255},
-                        maxLines = 1,
-                    },
-                    UI.Label {
-                        text = valueText,
-                        fontSize = 12,
-                        fontWeight = "bold",
-                        fontColor = valueColor,
-                        flexShrink = 0,
-                    },
-                },
-            },
-            UI.Label {
-                text = status.turns and status.valueText and tostring(status.turns) .. "回合" or (status.desc or ""),
-                width = "100%",
-                fontSize = 11,
-                fontColor = descColor,
-                maxLines = 1,
-            },
-        },
-    }
-end
-
-local function RebuildStatusArea(container, state)
+local function RebuildStatusArea(container)
     container:RemoveAllChildren()
-    local statuses = StatusPresenter.BuildPreviewStatuses()
-
-    container:AddChild(MakeSectionTitle("当前状态（预览）"))
-    local hint = "展示游戏中已设计的全部增益与减益状态"
-    if state and state.__useRealStatuses then
-        statuses = StatusPresenter.BuildStatuses(state)
-        hint = "当前生效的临时增益与减益"
-    end
-    container:AddChild(UI.Label {
-        text = hint,
-        width = "100%",
-        fontSize = 12,
-        fontColor = COLORS.muted,
-    })
-    if #statuses == 0 then
-        container:AddChild(UI.Label {
-            text = "暂无临时增益或减益",
-            width = "100%",
-            fontSize = 13,
-            fontColor = COLORS.muted,
-            textAlign = "center",
-        })
-    else
-        local statusWrap = UI.Panel {
-            width = "100%",
-            flexDirection = "row",
-            flexWrap = "wrap",
-            gap = 8,
-        }
-        for i = 1, #statuses do
-            statusWrap:AddChild(MakeStatusChip(statuses[i]))
-        end
-        container:AddChild(UI.Panel {
-            width = "100%",
-            flexGrow = 1,
-            flexBasis = 0,
-            children = {
-                UI.ScrollView {
-                    width = "100%",
-                    height = "100%",
-                    scrollY = true,
-                    scrollX = false,
-                    showScrollbar = true,
-                    children = { statusWrap },
-                },
-            },
-        })
-    end
-end
-
-local function GetOpportunityButtonText(state)
-    local history = state and state.rogueRewardHistory or nil
-    local latest = history and history[#history]
-    if latest and latest.name and latest.name ~= "" then
-        return latest.name
-    end
-    return "机缘"
 end
 
 function MainMenuView.Create(callbacks)
@@ -170,12 +48,14 @@ function MainMenuView.Create(callbacks)
         infoLabel = nil,
         statusArea = nil,
         opportunityButton = nil,
+        abandonConfirmPanel = nil,
+        currentState = nil,
     }, MainMenuView)
 
     self.infoLabel = UI.Label {
         text = "",
         width = "100%",
-        height = 22,
+        height = 44,
         fontSize = 14,
         lineHeight = 1.25,
         fontColor = COLORS.muted,
@@ -199,7 +79,86 @@ function MainMenuView.Create(callbacks)
     self.opportunityButton = MakeButton("机缘", COLORS.button, function()
         self:Hide()
         if self.callbacks.onBuffs then self.callbacks.onBuffs() end
-    end)
+    end, self.callbacks.onUIClick)
+
+    local abandonConfirmPanel
+    abandonConfirmPanel = UI.Panel {
+        visible = false,
+        position = "absolute",
+        left = 0, top = 0, right = 0, bottom = 0,
+        zIndex = 20,
+        backgroundColor = {0, 0, 0, 190},
+        alignItems = "center",
+        justifyContent = "center",
+        onClick = function() end,
+        children = {
+            UI.Panel {
+                width = "82%",
+                maxWidth = 410,
+                padding = 20,
+                gap = 14,
+                backgroundColor = COLORS.panel,
+                borderRadius = 16,
+                borderWidth = 3,
+                borderColor = COLORS.border,
+                children = {
+                    UI.Label {
+                        id = "abandonConfirmTitle",
+                        text = "确认放弃当前轮回？",
+                        width = "100%",
+                        fontSize = 22,
+                        fontWeight = "bold",
+                        fontColor = COLORS.title,
+                        textAlign = "center",
+                    },
+                    UI.Label {
+                        id = "abandonConfirmDescription",
+                        text = "放弃后本轮内容不会累计，也不会获得轮回点。随后将进入失败结算页面。",
+                        width = "100%",
+                        fontSize = 14,
+                        lineHeight = 1.5,
+                        fontColor = COLORS.text,
+                        whiteSpace = "normal",
+                        textAlign = "center",
+                    },
+                    UI.Panel {
+                        width = "100%",
+                        flexDirection = "row",
+                        gap = 10,
+                        children = {
+                            UI.Button {
+                                text = "取消",
+                                width = "48%",
+                                height = 48,
+                                backgroundColor = COLORS.button,
+                                pressedBackgroundColor = {120, 88, 45, 255},
+                                textColor = {255, 245, 230, 255},
+                                onClick = function()
+                                    if self.callbacks.onUIClick then self.callbacks.onUIClick() end
+                                    abandonConfirmPanel:SetVisible(false)
+                                end,
+                            },
+                            UI.Button {
+                                text = "确认放弃",
+                                width = "48%",
+                                height = 48,
+                                backgroundColor = COLORS.danger,
+                                pressedBackgroundColor = {120, 88, 45, 255},
+                                textColor = {255, 245, 230, 255},
+                                onClick = function()
+                                    if self.callbacks.onUIClick then self.callbacks.onUIClick() end
+                                    abandonConfirmPanel:SetVisible(false)
+                                    self:Hide()
+                                    if self.callbacks.onAbandonRun then self.callbacks.onAbandonRun() end
+                                end,
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }
+    self.abandonConfirmPanel = abandonConfirmPanel
 
     self.root = UI.Panel {
         visible = false,
@@ -250,6 +209,7 @@ function MainMenuView.Create(callbacks)
                                         pressedBackgroundColor = {35, 25, 18, 255},
                                         fontColor = {255, 245, 230, 255},
                                         onClick = function()
+                                            if self.callbacks.onUIClick then self.callbacks.onUIClick() end
                                             self:Hide()
                                         end,
                                     },
@@ -261,7 +221,7 @@ function MainMenuView.Create(callbacks)
                     self.statusArea,
                     UI.Panel {
                         width = "100%",
-                        height = 118,
+                        height = 182,
                         flexShrink = 0,
                         flexDirection = "row",
                         flexWrap = "wrap",
@@ -273,36 +233,45 @@ function MainMenuView.Create(callbacks)
                                     MakeButton("轮回强化", COLORS.button, function()
                                         self:Hide()
                                         if self.callbacks.onReincarnation then self.callbacks.onReincarnation() end
-                                    end),
+                                    end, self.callbacks.onUIClick),
                                 },
                             },
                             UI.Panel {
                                 width = "48%",
-                                children = {
-                                    self.opportunityButton,
-                                },
+                                children = { self.opportunityButton },
                             },
                             UI.Panel {
                                 width = "48%",
                                 children = {
                                     MakeButton("设置", COLORS.button, function()
                                         if self.callbacks.onSettings then self.callbacks.onSettings() end
-                                    end),
+                                    end, self.callbacks.onUIClick),
                                 },
                             },
                             UI.Panel {
                                 width = "48%",
                                 children = {
-                                    MakeButton("放弃当前轮回", COLORS.danger, function()
+                                    MakeButton("放弃", COLORS.danger, function()
+                                        abandonConfirmPanel:SetVisible(true)
+                                    end, self.callbacks.onUIClick),
+                                },
+                            },
+                            UI.Panel {
+                                width = "100%",
+                                children = {
+                                    MakeButton("保存并返回主界面", COLORS.button, function()
                                         self:Hide()
-                                        if self.callbacks.onAbandonRun then self.callbacks.onAbandonRun() end
-                                    end),
+                                        if self.callbacks.onSaveAndReturnToTitle then
+                                            self.callbacks.onSaveAndReturnToTitle()
+                                        end
+                                    end, self.callbacks.onUIClick),
                                 },
                             },
                         },
                     },
                 },
             },
+            abandonConfirmPanel,
         },
     }
 
@@ -314,16 +283,41 @@ function MainMenuView:GetRoot()
 end
 
 function MainMenuView:Show(state)
-    local difficulty = state and (state.difficulty or 1) or 1
-    local reincarnation = state and (state.reincarnationCount or 0) or 0
-    local points = state and (state.reincarnationPoints or 0) or 0
-    self.infoLabel:SetText(string.format("难度 %d · 轮回 %d · 轮回点 %d", difficulty, reincarnation, points))
-    self.opportunityButton:SetText(GetOpportunityButtonText(state))
-    RebuildStatusArea(self.statusArea, state)
+    self.currentState = state
+    local abandonTitle = self.abandonConfirmPanel:FindById("abandonConfirmTitle")
+    local abandonDescription = self.abandonConfirmPanel:FindById("abandonConfirmDescription")
+    if state and state.dailyChallenge then
+        if abandonTitle then abandonTitle:SetText("确认放弃今日挑战？") end
+        if abandonDescription then
+            abandonDescription:SetText("放弃后立即结算当前分数，并计入今日最佳与排行榜；今日挑战次数也会消耗。")
+        end
+    else
+        if abandonTitle then abandonTitle:SetText("确认放弃当前轮回？") end
+        if abandonDescription then
+            abandonDescription:SetText("放弃后本轮内容不会累计，也不会获得轮回点。随后将进入失败结算页面。")
+        end
+    end
+    local challenge = state and state.dailyChallenge
+    if challenge then
+        local names = {}
+        for _, tag in ipairs(challenge.tags or {}) do
+            table.insert(names, tag.name or tag.id or "未知词条")
+        end
+        self.infoLabel:SetText("今日词条：" .. table.concat(names, " · "))
+    else
+        local difficulty = state and (state.difficulty or 1) or 1
+        local reincarnation = state and (state.reincarnationCount or 0) or 0
+        local points = state and (state.reincarnationPoints or 0) or 0
+        self.infoLabel:SetText(string.format("难度 %d · 轮回 %d · 轮回点 %d", difficulty, reincarnation, points))
+    end
+    self.opportunityButton:SetText("机缘")
+    RebuildStatusArea(self.statusArea)
+    self.abandonConfirmPanel:SetVisible(false)
     self.root:SetVisible(true)
 end
 
 function MainMenuView:Hide()
+    self.abandonConfirmPanel:SetVisible(false)
     self.root:SetVisible(false)
 end
 

@@ -119,6 +119,16 @@ local function ClampRewardQuality(state, quality)
     return math.min(maxQuality, math.max(minQuality, quality or minQuality))
 end
 
+local function GetShopCategory(state, index)
+    local categories = {
+        Config.ITEM_CATEGORY.WEAPON,
+        Config.ITEM_CATEGORY.ARMOR,
+        Config.ITEM_CATEGORY.PILL,
+        Config.ITEM_CATEGORY.TALISMAN,
+    }
+    return categories[((index - 1) % #categories) + 1]
+end
+
 local function GetShopItemPrice(item)
     local rules = Config.SHOP or {}
     local quality = math.min(Config.MAX_QUALITY, math.max(1, item and item.quality or 1))
@@ -130,19 +140,16 @@ function FieldRewardService.CreateShopItems(state, quality)
     local finalQuality = ClampRewardQuality(state, quality)
     local rules = Config.SHOP or {}
     local itemCount = math.max(1, math.floor(rules.ITEM_COUNT or 2))
-    local categories = { Config.ITEM_CATEGORY.PILL, Config.ITEM_CATEGORY.TALISMAN }
-    if DailyChallenge.RandomFloat(state) < 0.5 then
-        categories[1], categories[2] = categories[2], categories[1]
-    end
 
     local items = {}
     for index = 1, itemCount do
-        local category = categories[((index - 1) % #categories) + 1]
+        local category = GetShopCategory(state, index)
         local item = ItemSystem.CreateItemByCategory(state, category, finalQuality)
         table.insert(items, {
             item = item,
             price = GetShopItemPrice(item),
             purchased = false,
+            adReward = index == 1,
         })
     end
     return items

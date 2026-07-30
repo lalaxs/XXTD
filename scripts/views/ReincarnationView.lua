@@ -37,8 +37,14 @@ local function Percent(value)
     return string.format("%.1f%%", (value or 0) * 100):gsub("%.0%%", "%%")
 end
 
-function ReincarnationView.Create(onUpgrade)
-    local self = setmetatable({ root = nil, pointsLabel = nil, cardsPanel = nil, onUpgrade = onUpgrade }, ReincarnationView)
+function ReincarnationView.Create(onUpgrade, onUIClick)
+    local self = setmetatable({
+        root = nil,
+        pointsLabel = nil,
+        cardsPanel = nil,
+        onUpgrade = onUpgrade,
+        onUIClick = onUIClick,
+    }, ReincarnationView)
     self.pointsLabel = UI.Label {
         text = "轮回点：0",
         width = "100%",
@@ -52,9 +58,31 @@ function ReincarnationView.Create(onUpgrade)
         flexDirection = "row",
         flexWrap = "wrap",
         gap = 10,
-        justifyContent = "center",
+        justifyContent = "flex-start",
         paddingRight = 4,
     }
+    local cardsScrollView = UI.ScrollView {
+        width = "100%",
+        height = "100%",
+        scrollY = true,
+        scrollX = false,
+        showScrollbar = false,
+        children = { self.cardsPanel },
+    }
+    cardsScrollView.OnPanStart = function(scrollView, event)
+        if not scrollView.props.scrollX and not scrollView.props.scrollY then
+            return false
+        end
+
+        scrollView:CancelSnap_()
+        UI.CancelPointer(event.pointerId, event.pointerType)
+        scrollView.state.isDragging = true
+        scrollView.dragStartScrollX_ = scrollView.state.scrollX
+        scrollView.dragStartScrollY_ = scrollView.state.scrollY
+        scrollView.state.velocityX = 0
+        scrollView.state.velocityY = 0
+        return true
+    end
     self.root = UI.Panel {
         visible = false,
         position = "absolute",
@@ -116,6 +144,7 @@ function ReincarnationView.Create(onUpgrade)
                                 pressedBackgroundColor = { 55, 40, 28, 255 },
                                 textColor = { 235, 218, 185, 255 },
                                 onClick = function()
+                                    if self.onUIClick then self.onUIClick() end
                                     self:Hide()
                                 end,
                             },
@@ -133,14 +162,7 @@ function ReincarnationView.Create(onUpgrade)
                         flexGrow = 1,
                         flexBasis = 0,
                         children = {
-                            UI.ScrollView {
-                                width = "100%",
-                                height = "100%",
-                                scrollY = true,
-                                scrollX = false,
-                                showScrollbar = true,
-                                children = { self.cardsPanel },
-                            },
+                            cardsScrollView,
                         },
                     },
                 },
@@ -244,7 +266,10 @@ function ReincarnationView:Show(state)
                             pressedBackgroundColor = full and COLORS.muted or { 130, 45, 38, 255 },
                             textColor = { 255, 245, 230, 255 },
                             onClick = function()
-                                if not full and self.onUpgrade then self.onUpgrade(def.id) end
+                                if not full and self.onUpgrade then
+                                    if self.onUIClick then self.onUIClick() end
+                                    self.onUpgrade(def.id)
+                                end
                             end,
                         },
                     },

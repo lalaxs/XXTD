@@ -2,6 +2,7 @@
 -- 突破后的机缘 3 选 1 弹窗。
 
 local UI = require("urhox-libs/UI")
+local PlayIcon = require("views.VectorIcons").PlayIcon
 
 local RogueRewardView = {}
 RogueRewardView.__index = RogueRewardView
@@ -109,8 +110,8 @@ local function CreateRewardCard(reward, onSelect)
         flexGrow = 1,
         flexShrink = 1,
         flexBasis = 0,
-        height = 330,
-        padding = 12,
+        height = 390,
+        padding = 11,
         gap = 8,
         backgroundColor = COLORS.card,
         borderRadius = 14,
@@ -167,17 +168,19 @@ local function CreateRewardCard(reward, onSelect)
     }
 end
 
-function RogueRewardView.Create(onSelect)
+function RogueRewardView.Create(onSelect, onRefresh)
     local self = setmetatable({
         root = nil,
         title = nil,
         subtitle = nil,
         choicesPanel = nil,
+        refreshButton = nil,
         onSelect = onSelect,
+        onRefresh = onRefresh,
     }, RogueRewardView)
 
     self.title = UI.Label {
-        text = "突破至境界",
+        text = "机缘",
         fontSize = 25,
         fontWeight = "bold",
         fontColor = COLORS.title,
@@ -196,7 +199,44 @@ function RogueRewardView.Create(onSelect)
         width = "100%",
         flexDirection = "row",
         alignItems = "stretch",
-        gap = 12,
+        gap = 10,
+    }
+    self.refreshButton = UI.Panel {
+        width = 150,
+        height = 40,
+        alignSelf = "center",
+        flexDirection = "row",
+        justifyContent = "center",
+        alignItems = "center",
+        gap = 7,
+        backgroundColor = COLORS.green,
+        borderRadius = 9,
+        borderWidth = 2,
+        borderColor = COLORS.border,
+        transition = "scale 0.1s easeOut, opacity 0.1s easeOut",
+        onTapStart = function(event, widget)
+            widget:SetStyle({ scale = 0.96, opacity = 0.86, backgroundColor = {61, 104, 86, 255} })
+        end,
+        onTapEnd = function(event, widget)
+            widget:SetStyle({ scale = 1.0, opacity = 1.0, backgroundColor = COLORS.green })
+        end,
+        onTap = function()
+            if self.onRefresh then self.onRefresh() end
+        end,
+        children = {
+            PlayIcon {
+                width = 18,
+                height = 18,
+                pointerEvents = "none",
+            },
+            UI.Label {
+                text = "刷新",
+                fontSize = 14,
+                fontWeight = "bold",
+                fontColor = {255, 245, 230, 255},
+                pointerEvents = "none",
+            },
+        },
     }
 
     self.root = UI.Panel {
@@ -213,13 +253,13 @@ function RogueRewardView.Create(onSelect)
         paddingHorizontal = 10,
         children = {
             UI.Panel {
-                width = "94%",
-                height = 500,
-                top = -45,
-                maxWidth = 940,
-                minHeight = 470,
-                padding = 14,
-                gap = 10,
+                width = "98%",
+                height = 592,
+                top = -19,
+                maxWidth = 1040,
+                minHeight = 540,
+                padding = 16,
+                gap = 11,
                 backgroundColor = COLORS.panel,
                 borderRadius = 20,
                 borderWidth = 3,
@@ -235,14 +275,25 @@ function RogueRewardView.Create(onSelect)
                             self.title,
                         },
                     },
+                    self.subtitle,
                     UI.Panel {
                         width = "100%",
                         height = 2,
                         borderRadius = 1,
                         backgroundColor = COLORS.border,
                     },
-                    self.subtitle,
                     self.choicesPanel,
+                    UI.Panel {
+                        width = "100%",
+                        height = 62,
+                        flexShrink = 0,
+                        flexDirection = "row",
+                        justifyContent = "center",
+                        alignItems = "flex-start",
+                        children = {
+                            self.refreshButton,
+                        },
+                    },
                 },
             },
         },
@@ -255,18 +306,20 @@ function RogueRewardView:GetRoot()
     return self.root
 end
 
-function RogueRewardView:Show(event, choices, stage)
+function RogueRewardView:Show(event, choices, stage, stageIndex, stageCount)
     self.choicesPanel:RemoveAllChildren()
 
-    local realmName = event and event.realmName or "新境界"
     local stageInfo = {
-        attack = { prefix = "突破至", title = "攻击法宝", subtitle = "选择一项攻击法宝机缘", suffix = "，完成三次选择后继续修行。" },
-        armor = { prefix = "突破至", title = "防御法宝", subtitle = "选择一项防御法宝机缘", suffix = "，完成三次选择后继续修行。" },
-        enemy = { prefix = "突破至", title = "敌方强化", subtitle = "选择一项敌方强化", suffix = "，完成三次选择后继续修行。" },
+        attack = "选择一项攻击机缘",
+        armor = "选择一项防御机缘",
+        enemy = "选择一项敌方强化",
     }
-    local currentStage = stageInfo[stage] or stageInfo.attack
-    self.title:SetText(currentStage.prefix .. realmName .. " · " .. currentStage.title)
-    self.subtitle:SetText(currentStage.subtitle .. currentStage.suffix)
+    local subtitle = stageInfo[stage] or stageInfo.attack
+    local progress = stageCount and stageCount > 1
+        and string.format("（%d/%d）", stageIndex or 1, stageCount)
+        or ""
+    self.title:SetText("机缘")
+    self.subtitle:SetText(subtitle .. progress)
 
     for _, reward in ipairs(choices or {}) do
         self.choicesPanel:AddChild(CreateRewardCard(reward, self.onSelect))

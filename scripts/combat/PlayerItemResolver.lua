@@ -237,7 +237,7 @@ local function ResolveBaseStatus(state, item, monster, weaponDamage, weaponState
                 weaponState.ringMomentum = 0
                 local shakeMountainApplies = HasSkill(state, "ring_shake_mountain")
                     and monster.tier == Config.MONSTER_TIER.NORMAL
-                local distance = shakeMountainApplies and 2 or 1
+                local distance = shakeMountainApplies and 3 or 2
                 local moved = 0
                 for _ = 1, distance do
                     local blocked = false

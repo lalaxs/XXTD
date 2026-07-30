@@ -97,11 +97,6 @@ end
 local function BuildOwnedRewards(state)
     local owned = {}
     local levels = state and state.selectedRogueRewards or {}
-    local latestRealmById = {}
-
-    for _, history in ipairs(state and state.rogueRewardHistory or {}) do
-        latestRealmById[history.id] = history.realmName
-    end
 
     for _, def in ipairs(RogueRewardDefs) do
         local level = tonumber(levels[def.id]) or 0
@@ -112,9 +107,7 @@ local function BuildOwnedRewards(state)
                 abilityName = def.abilityName or def.shortName or def.name,
                 abilityDesc = def.cardDesc or def.abilityDesc or def.desc,
                 category = def.category or "机缘",
-                level = level,
-                maxStacks = def.maxStacks or 1,
-                realmName = latestRealmById[def.id],
+                icon = def.icon,
             })
         end
     end
@@ -124,7 +117,6 @@ end
 
 local function CreateRewardRow(reward, index)
     local color = CATEGORY_COLOR[reward.category] or COLORS.gold
-    local realmName = reward.realmName
 
     return UI.Panel {
         width = "100%",
@@ -145,12 +137,32 @@ local function CreateRewardRow(reward, index)
                 children = {
                     CreateSeal(tostring(index), COLORS.red, 34, 17),
                     UI.Panel {
+                        width = 68,
+                        height = 68,
+                        backgroundImage = reward.icon or false,
+                        backgroundFit = "contain",
+                        backgroundColor = WithAlpha(color, 35),
+                        borderWidth = 2,
+                        borderColor = WithAlpha(color, 180),
+                        borderRadius = 10,
+                        flexShrink = 0,
+                        children = reward.icon and {} or {
+                            UI.Label {
+                                text = "技能",
+                                fontSize = 12,
+                                fontWeight = "bold",
+                                fontColor = color,
+                                textAlign = "center",
+                            },
+                        },
+                    },
+                    UI.Panel {
                         flexGrow = 1,
                         flexShrink = 1,
                         gap = 4,
                         children = {
                             UI.Label {
-                                text = reward.abilityName or reward.name or "未知机缘",
+                                text = reward.abilityName or reward.name or "未知技能",
                                 width = "100%",
                                 fontSize = 18,
                                 fontWeight = "bold",
@@ -158,14 +170,6 @@ local function CreateRewardRow(reward, index)
                                 whiteSpace = "normal",
                                 wordBreak = "break-word",
                                 maxLines = 2,
-                            },
-                            UI.Label {
-                                text = realmName
-                                    and string.format("最近获得：%s · 层级 %d/%d", realmName, reward.level or 1, reward.maxStacks or 1)
-                                    or string.format("当前层级：%d/%d", reward.level or 1, reward.maxStacks or 1),
-                                width = "100%",
-                                fontSize = 12,
-                                fontColor = COLORS.muted,
                             },
                         },
                     },
@@ -191,7 +195,7 @@ local function CreateRewardRow(reward, index)
     }
 end
 
-function RogueBuffListView.Create()
+function RogueBuffListView.Create(onUIClick)
     local self = setmetatable({
         root = nil,
         panel = nil,
@@ -200,6 +204,7 @@ function RogueBuffListView.Create()
         countLabel = nil,
         listPanel = nil,
         scrollView = nil,
+        onUIClick = onUIClick,
     }, RogueBuffListView)
 
     self.titleLabel = UI.Label {
@@ -224,6 +229,7 @@ function RogueBuffListView.Create()
     }
     self.listPanel = UI.Panel {
         width = "100%",
+        minHeight = "100%",
         gap = 10,
         paddingRight = 4,
     }
@@ -231,6 +237,12 @@ function RogueBuffListView.Create()
         width = "100%",
         flexGrow = 1,
         flexBasis = 0,
+        padding = 10,
+        backgroundColor = COLORS.panelInner,
+        borderRadius = 14,
+        borderWidth = 2,
+        borderColor = COLORS.border,
+        overflow = "hidden",
         children = {
             UI.ScrollView {
                 width = "100%",
@@ -275,6 +287,7 @@ function RogueBuffListView.Create()
                         backgroundColor = {92, 63, 36, 255},
                         textColor = {235, 218, 185, 255},
                         onClick = function()
+                            if self.onUIClick then self.onUIClick() end
                             self:Hide()
                         end,
                     },
@@ -346,34 +359,21 @@ end
 function RogueBuffListView:Show(state)
     local rewards = BuildOwnedRewards(state)
     self.listPanel:RemoveAllChildren()
-    self.titleLabel:SetText("已拥有技能")
-    self.subtitleLabel:SetText("本轮已获得的肉鸽技能与当前层级")
+    self.titleLabel:SetText("机缘")
+    self.subtitleLabel:SetText("本轮已获得的技能")
     self.countLabel:SetText(string.format("%d项", #rewards))
     print(string.format("[Rogue Skills] 打开已拥有技能面板，共%d项", #rewards))
 
     if #rewards == 0 then
-        self.listPanel:AddChild(UI.Panel {
+        self.listPanel:AddChild(UI.Label {
+            text = "尚未拥有技能",
             width = "100%",
-            minHeight = 180,
-            padding = 18,
-            alignItems = "center",
-            justifyContent = "center",
-            backgroundColor = COLORS.card,
-            borderRadius = 14,
-            borderWidth = 2,
-            borderColor = COLORS.border,
-            boxShadow = HardShadow(),
-            children = {
-                UI.Label {
-                    text = "尚未拥有肉鸽技能\n突破境界并完成机缘选择后会显示在这里",
-                    width = "100%",
-                    fontSize = 15,
-                    lineHeight = 1.5,
-                    fontColor = COLORS.muted,
-                    textAlign = "center",
-                    whiteSpace = "normal",
-                },
-            },
+            flexGrow = 1,
+            fontSize = 16,
+            fontWeight = "bold",
+            fontColor = COLORS.muted,
+            textAlign = "center",
+            verticalAlign = "middle",
         })
     else
         for i, reward in ipairs(rewards) do

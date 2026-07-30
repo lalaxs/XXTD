@@ -14,6 +14,7 @@ local RogueRewardSystem = require("rogue.RogueRewardSystem")
 local Stats = require("combat.Stats")
 local VisualEventQueue = require("events.VisualEventQueue")
 local DailyChallenge = require("DailyChallenge")
+local TutorialSystem = require("TutorialSystem")
 
 local TurnEngine = {}
 
@@ -127,12 +128,22 @@ end
 
 local function RefreshBoard(state, suppressWaveSpawn)
     if state.pendingRogueChoices then return end
-    FieldRewardSystem.SpawnFieldRewards(state)
 
-    if state.forceSpawnNextTurn then
+    local tutorialStep = TutorialSystem.GetStep(state)
+    local holdWaveSpawn = TutorialSystem.NeedsRewardSpawn(state)
+        or tutorialStep == TutorialSystem.STEP.ATTACK_REWARD
+
+    if TutorialSystem.NeedsRewardSpawn(state) then
+        local reward = FieldRewardSystem.SpawnTutorialWeaponReward(state, TutorialSystem.GetRewardColumn(state))
+        TutorialSystem.RegisterReward(state, reward)
+    else
+        FieldRewardSystem.SpawnFieldRewards(state)
+    end
+
+    if not holdWaveSpawn and state.forceSpawnNextTurn then
         state.forceSpawnNextTurn = false
         WaveSystem.ForceSpawnWave(state)
-    elseif not suppressWaveSpawn then
+    elseif not holdWaveSpawn and not suppressWaveSpawn then
         WaveSystem.SpawnWave(state)
     end
 end

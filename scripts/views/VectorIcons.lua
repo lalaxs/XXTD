@@ -43,6 +43,36 @@ function CoinIcon:Render(nvg)
     nvgFill(nvg)
 end
 
+local PlayIcon = setmetatable({}, { __index = Widget })
+PlayIcon.__index = PlayIcon
+
+function PlayIcon:new(props)
+    return Widget.new(self, props or {})
+end
+
+setmetatable(PlayIcon, {
+    __index = Widget,
+    __call = function(cls, props)
+        return cls:new(props)
+    end,
+})
+
+function PlayIcon:Render(nvg)
+    local l = self:GetAbsoluteLayout()
+    local size = math.min(l.w, l.h) * 0.72
+    local cx = l.x + l.w * 0.5
+    local cy = l.y + l.h * 0.5
+
+    nvgBeginPath(nvg)
+    nvgMoveTo(nvg, cx - size * 0.30, cy - size * 0.42)
+    nvgLineTo(nvg, cx + size * 0.42, cy)
+    nvgLineTo(nvg, cx - size * 0.30, cy + size * 0.42)
+    nvgClosePath(nvg)
+    nvgFillColor(nvg, nvgRGBA(255, 255, 255, 255))
+    nvgFill(nvg)
+end
+
 return {
     CoinIcon = CoinIcon,
+    PlayIcon = PlayIcon,
 }
