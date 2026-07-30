@@ -194,7 +194,9 @@ local function UsePill(state, item)
     elseif effect and effect.type == "attackBuff" then
         BuffSystem.AddBuff(state, "atkUp", effect.value or 0, effect.duration or 3)
         GameEvents.AddPlayerStatus(state, "法宝增伤", "buff")
-        return string.format("使用%s，法宝伤害提升%d%%", item.name, math.floor((effect.value or 0) * 100))
+        local realm = Config.GetRealm(state.realmIndex)
+        local actualBuff = (effect.value or 0) * (realm.pillMul or 1.0)
+        return string.format("使用%s，法宝伤害提升%d%%", item.name, math.floor(actualBuff * 100 + 0.5))
     elseif effect and effect.type == "deathSave" then
         if state.deathSaveUsed then
             return string.format("%s本局免死次数已用尽", item.name), 0, false
@@ -206,7 +208,7 @@ local function UsePill(state, item)
         end
         state.deathSaveRatio = nextRatio
         GameEvents.AddPlayerStatus(state, "免死护佑", "buff")
-        return string.format("使用%s，获得免死护佑", item.name)
+        return string.format("使用%s，获得免死护佑（恢复%d%%气血）", item.name, math.floor(nextRatio * 100 + 0.5))
     end
 
     local realm = Config.GetRealm(state.realmIndex)

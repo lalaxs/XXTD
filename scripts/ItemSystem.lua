@@ -222,31 +222,10 @@ function ItemSystem.GenerateRandomItem(state)
         end
     end
 
-    local minQuality, maxQuality = Config.GetDropQualityRange(state.realmIndex or 1)
-    local qualityWeights = Config.DROP_RULES.QUALITY_WEIGHTS or {}
-    local totalQualityWeight = 0
-    for _, entry in ipairs(qualityWeights) do
-        local quality = entry.quality or 1
-        if quality >= minQuality and quality <= maxQuality then
-            totalQualityWeight = totalQualityWeight + math.max(0, entry.weight or 0)
-        end
-    end
-
-    local quality = minQuality
-    if totalQualityWeight > 0 then
-        local qualityRoll = DailyChallenge.RandomFloat(state) * totalQualityWeight
-        local qualityAcc = 0
-        for _, entry in ipairs(qualityWeights) do
-            local entryQuality = entry.quality or 1
-            if entryQuality >= minQuality and entryQuality <= maxQuality then
-                qualityAcc = qualityAcc + math.max(0, entry.weight or 0)
-                if qualityRoll <= qualityAcc then
-                    quality = entryQuality
-                    break
-                end
-            end
-        end
-    end
+    local quality = Config.RollDropQuality(
+        state.realmIndex or 1,
+        DailyChallenge.RandomFloat(state)
+    )
 
     return ItemSystem.CreateItemByCategory(state, category, quality)
 end

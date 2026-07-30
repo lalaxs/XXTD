@@ -5,6 +5,7 @@ local UI = require("urhox-libs/UI")
 local Config = require("Config")
 local SlotAdapter = require("SlotAdapter")
 local VectorIcons = require("views.VectorIcons")
+local RogueRewardSystem = require("rogue.RogueRewardSystem")
 
 local ShopView = {}
 ShopView.__index = ShopView
@@ -34,30 +35,80 @@ local CATEGORY_LABELS = {
     [Config.ITEM_CATEGORY.TALISMAN] = "符咒",
 }
 
-local function DescribeItem(item)
+local function DescribeItem(item, state)
     if not item then return "未知商品" end
     local effect = item.pillEffect or item.talismanEffect
     if not effect then return "可主动使用的消耗品" end
+    local realm = state and Config.GetRealm(state.realmIndex or 1) or { pillMul = 1.0 }
+    local pillMul = (realm.pillMul or 1.0) * (1 + (state and RogueRewardSystem.GetModifierValue(state, "pillEffectPct") or 0))
+    local talismanMul = 1 + (state and RogueRewardSystem.GetModifierValue(state, "talismanEffectPct") or 0)
     if effect.type == "heal" then
-        return string.format("恢复%d气血", effect.value or 0)
+        local actualHeal = math.floor((effect.value or 0) * pillMul)
+        local parts = { string.format("恢复%d气血", actualHeal) }
+        if (effect.reduction or 0) > 0 then
+            local actualReduction = (effect.reduction or 0) * (realm.pillMul or 1.0)
+            table.insert(parts, string.format("攻防强化%d%%", math.floor(actualReduction * 100 + 0.5)))
+        end
+        if (effect.cleanseCount or 0) > 0 then
+            local countText = effect.cleanseCount >= 99 and "全部" or tostring(effect.cleanseCount)
+            table.insert(parts, "净化" .. countText .. "负面")
+        end
+        return table.concat(parts, "，")
     elseif effect.type == "shield" then
         return string.format("获得%d护盾，持续%d回合", effect.value or 0, effect.duration or 0)
     elseif effect.type == "cleanse" then
-        return "清除负面状态"
+        local countText = effect.cleanseCount >= 99 and "全部" or tostring(effect.cleanseCount)
+        local text = string.format("清除%s负面状态", countText)
+        if (effect.immunityTurns or 0) > 0 then
+            text = text .. string.format("，免疫%d回合", effect.immunityTurns)
+        end
+        return text
     elseif effect.type == "attackBuff" then
-        return string.format("法宝伤害提升%d%%", math.floor((effect.value or 0) * 100))
+        local actualAtkBuff = (effect.value or 0) * (realm.pillMul or 1.0)
+        return string.format("法宝伤害提升%d%%，持续%d回合", math.floor(actualAtkBuff * 100 + 0.5), effect.duration or 0)
     elseif effect.type == "deathSave" then
-        return string.format("获得%d%%免死恢复", math.floor((effect.value or 0) * 100))
+        return string.format("免死护佑：气血归零恢复%d%%气血", math.floor((effect.value or 0) * 100 + 0.5))
     elseif effect.type == "damage" then
-        return string.format("造成%d伤害", effect.value or item.aoeDmg or 0)
+        local actualDmg = math.floor((effect.value or item.aoeDmg or 0) * talismanMul)
+        local targetText = effect.targetCount >= 99 and "全体" or tostring(effect.targetCount or 1)
+        return string.format("对%s目标造成%d伤害", targetText, actualDmg)
     elseif effect.type == "root" then
-        return string.format("定身目标%d回合", effect.turns or 1)
+        local targetText = effect.targetCount >= 99 and "全体" or tostring(effect.targetCount or 1)
+        return string.format("定身%s目标%d回合", targetText, effect.turns or 1)
     elseif effect.type == "armorBreak" then
-        return string.format("降低防御%d%%", math.floor((effect.value or 0) * 100))
+        local actualVal = (effect.value or 0) * talismanMul
+        local targetText = effect.targetCount >= 99 and "全体" or tostring(effect.targetCount or 1)
+        return string.format("破甲%s目标%d%%", targetText, math.floor(actualVal * 100 + 0.5))
     elseif effect.type == "attackDown" then
-        return string.format("降低攻击%d%%", math.floor((effect.value or 0) * 100))
+        local actualVal = (effect.value or 0) * talismanMul
+        local targetText = effect.targetCount >= 99 and "全体" or tostring(effect.targetCount or 1)
+        return string.format("削攻%s目标%d%%", targetText, math.floor(actualVal * 100 + 0.5))
     elseif effect.type == "vulnerable" then
-        return string.format("施加%d%%易伤", math.floor((effect.value or 0) * 100))
+        local actualVal = (effect.value or 0) * talismanMul
+        local targetText = effect.targetCount >= 99 and "全体" or tostring(effect.targetCount or 1)
+        return string.format("易伤%s目标%d%%", targetText, math.floor(actualVal * 100 + 0.5))
+    end
+    -- 兜底：根据 family 判断
+    if item.family == "death_save" then
+        return "免死护佑：气血归零恢复一定气血"
+    elseif item.family == "heal" then
+        return string.format("恢复%d气血", math.floor((item.power or 0) * pillMul))
+    elseif item.family == "shield" then
+        return string.format("获得%d护盾", item.power or 0)
+    elseif item.family == "cleanse" then
+        return "清除负面状态"
+    elseif item.family == "attack_buff" then
+        return string.format("法宝伤害提升%d%%", math.floor((item.power or 0) * (realm.pillMul or 1.0) * 100 + 0.5))
+    elseif item.family == "damage" then
+        return string.format("造成%d伤害", math.floor((item.power or 0) * talismanMul))
+    elseif item.family == "root" then
+        return "定身目标"
+    elseif item.family == "armor_break" then
+        return "降低目标防御"
+    elseif item.family == "attack_down" then
+        return "降低目标攻击"
+    elseif item.family == "vulnerable" then
+        return "使目标易伤"
     end
     return "可主动使用的消耗品"
 end
@@ -146,7 +197,7 @@ local function CreatePriceButton(entry, index, coins, onBuy, onClaimAd)
     }
 end
 
-local function CreateItemCard(entry, index, coins, onBuy, onClaimAd)
+local function CreateItemCard(entry, index, coins, onBuy, onClaimAd, state)
     local item = entry.item
     local quality = Config.QUALITY[item.quality] or Config.QUALITY[1]
     return UI.Panel {
@@ -197,7 +248,7 @@ local function CreateItemCard(entry, index, coins, onBuy, onClaimAd)
                 textAlign = "center",
             },
             UI.Label {
-                text = DescribeItem(item),
+                text = DescribeItem(item, state),
                 width = "100%",
                 flexGrow = 1,
                 flexShrink = 1,
@@ -437,7 +488,7 @@ function ShopView:Refresh(state)
             if self.callbacks.onBuy then self.callbacks.onBuy(itemIndex) end
         end, function(itemIndex)
             if self.callbacks.onClaimAdItem then self.callbacks.onClaimAdItem(itemIndex) end
-        end))
+        end, state))
     end
 
     local rules = Config.SHOP or {}

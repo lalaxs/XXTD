@@ -59,8 +59,20 @@ local function GetRealmStatPressureMul(state, configKey, fallbackGrowth)
     return 1.0 + easedProgress * growth
 end
 
-local function GetRealmHpPressureMul(state)
-    return GetRealmStatPressureMul(state, "MINOR_HP_GROWTH", 1.00)
+local function GetRealmHpTarget(state)
+    local realm = Config.GetRealm(state and state.realmIndex or 1)
+    local targetsByMajor = (Config.WAVE_SPAWN or {}).ENEMY_HP_TARGET_BY_MAJOR_STAGE or {}
+    local stageTargets = targetsByMajor[realm.majorIndex or 1]
+    if not stageTargets then return nil end
+    return stageTargets[realm.minorIndex or 1] or stageTargets[#stageTargets]
+end
+
+local function GetRealmScaledBaseHp(def, state)
+    local targetHp = GetRealmHpTarget(state)
+    if not targetHp then return def.hp or 1 end
+    -- 使用 tier 倍率：精锐(ELITE)对应 targetHp（锚点），其他 tier 按 MONSTER_TIER_HP_MUL 缩放
+    local tierMul = ((Config.MONSTER_TIER_HP_MUL or {})[def.tier]) or 1.0
+    return targetHp * tierMul
 end
 
 local function GetRealmAtkPressureMul(state)
@@ -93,7 +105,7 @@ end
 function WaveSystem.CreateMonsterFromDef(def, col, row, state)
     local difficulty = GetDifficultyConfig(state)
     local enemyMul = difficulty.enemyMul or 1.0
-    local hpPressureMul = GetRealmHpPressureMul(state)
+    local realmScaledBaseHp = GetRealmScaledBaseHp(def, state)
     local atkPressureMul = GetRealmAtkPressureMul(state)
     local defPressureMul = GetRealmDefPressureMul(state)
     local expPressureMul = GetRealmExpPressureMul(state)
@@ -104,11 +116,6 @@ function WaveSystem.CreateMonsterFromDef(def, col, row, state)
     local hpGrowth = 1.0 + waveRank * (isEndlessAscension and (Config.ENDLESS_WAVE_HP_GROWTH or 0) or (Config.WAVE_ENEMY_HP_GROWTH or 0))
     local atkGrowth = 1.0 + waveRank * (isEndlessAscension and (Config.ENDLESS_WAVE_ATK_GROWTH or 0) or (Config.WAVE_ENEMY_ATK_GROWTH or 0))
     local realmAtkScale = (Config.REALM_ENEMY_ATK_SCALE and Config.REALM_ENEMY_ATK_SCALE[def.realm or 1]) or 1.0
-    local lateGameHpMul = 1.0
-    if not isEndlessAscension then
-        local majorIndex = Config.GetRealmMajorIndex(state and state.realmIndex or 1)
-        lateGameHpMul = (Config.LATE_GAME_ENEMY_HP_MUL_BY_MAJOR and Config.LATE_GAME_ENEMY_HP_MUL_BY_MAJOR[majorIndex]) or 1.0
-    end
     local atkMul = enemyMul * atkPressureMul * (1 + (difficulty.enemyAtkBonus or 0)) * realmAtkScale
     local enemyHpMul = (1 + RogueRewardSystem.GetModifierValue(state, "enemyHpPct"))
         * DailyChallenge.GetEffect(state, "monsterHpMul", 1.0)
@@ -116,7 +123,7 @@ function WaveSystem.CreateMonsterFromDef(def, col, row, state)
         * DailyChallenge.GetEffect(state, "monsterAtkMul", 1.0)
     local enemyDefenseMul = (1 + RogueRewardSystem.GetModifierValue(state, "enemyDefensePct"))
         * DailyChallenge.GetEffect(state, "monsterDefenseMul", 1.0)
-    local hp = math.max(1, math.floor((def.hp or 1) * enemyMul * hpPressureMul * hpGrowth * lateGameHpMul * enemyHpMul + 0.5))
+    local hp = math.max(1, math.floor(realmScaledBaseHp * enemyMul * hpGrowth * enemyHpMul + 0.5))
     local atk = math.max(1, math.floor((def.atk or 1) * atkMul * atkGrowth * enemyAtkMul + 0.5))
     local defense = math.max(0, math.floor((def.defense or 0) * defPressureMul * enemyDefenseMul + 0.5))
     local exp = math.max(1, math.floor((def.exp or 0) * expGlobalMul * expPressureMul * expRewardMul
@@ -132,7 +139,7 @@ function WaveSystem.CreateMonsterFromDef(def, col, row, state)
         tags = def.tags,
         hp = hp,
         maxHp = hp,
-        baseHp = def.hp,
+        baseHp = math.max(1, math.floor(realmScaledBaseHp + 0.5)),
         atk = atk,
         baseAtk = def.atk,
         defense = defense,
@@ -467,7 +474,7 @@ local function SpawnOneMonster(state)
     monster.spawnAnimTurn = state.turn or 0
     VisualState.MarkMonsterSpawnPending(state, monster)
     table.insert(state.monsters, monster)
-    return true, def, col, nil
+    return true, def, col, nil, monster
 end
 
 RollSpawnCount = function(state)
@@ -510,13 +517,14 @@ local function TrySpawnWaveOrQueue(state)
     local blockedReason = nil
 
     for _ = 1, targetCount do
-        local spawned, def, col, reason = SpawnOneMonster(state)
+        local spawned, def, col, reason, monster = SpawnOneMonster(state)
         if not spawned then
             blockedReason = reason
             break
         end
         spawnedCount = spawnedCount + 1
-        print(string.format("  [Spawn] %s 刷新在第%d列", def.name or "妖魔", col or 1))
+        print(string.format("  [Spawn] %s 刷新在第%d列，生命值 %d/%d", def.name or "妖魔", col or 1,
+            monster.hp or 0, monster.maxHp or 0))
     end
 
     if spawnedCount == 0 then

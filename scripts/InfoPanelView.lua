@@ -250,12 +250,22 @@ local function BuildArmorDesc(item)
     return JoinLines(lines)
 end
 
-local function BuildPillEffectDesc(effect)
-    if not effect then return nil end
+local function BuildPillEffectDesc(effect, state, item)
+    if not effect then
+        -- 兜底：根据 family 判断（旧存档物品可能丢失 pillEffect）
+        if item and item.family == "death_save" then
+            return "获得一次免死护佑，触发时保留一定气血。"
+        end
+        return nil
+    end
+    local realm = state and Config.GetRealm(state.realmIndex or 1) or { pillMul = 1.0 }
+    local pillMul = (realm.pillMul or 1.0) * (1 + (state and RogueRewardSystem.GetModifierValue(state, "pillEffectPct") or 0))
     if effect.type == "heal" then
-        local text = string.format("恢复%d气血", effect.value or 0)
+        local actualHeal = math.floor((effect.value or 0) * pillMul)
+        local text = string.format("恢复%d气血", actualHeal)
         if (effect.reduction or 0) > 0 then
-            text = text .. string.format("，并获得%d%%攻防强化%d回合", Percent(effect.reduction), effect.duration or 0)
+            local actualReduction = (effect.reduction or 0) * (realm.pillMul or 1.0)
+            text = text .. string.format("，并获得%d%%攻防强化%d回合", Percent(actualReduction), effect.duration or 0)
         end
         if (effect.cleanseCount or 0) > 0 then
             text = text .. string.format("，清除%s负面状态", FormatCleanseCount(effect.cleanseCount))
@@ -270,18 +280,39 @@ local function BuildPillEffectDesc(effect)
         end
         return text .. "。"
     elseif effect.type == "attackBuff" then
-        return string.format("法宝伤害提升%d%%，持续%d回合。", Percent(effect.value), effect.duration or 0)
+        local actualBuff = (effect.value or 0) * (realm.pillMul or 1.0)
+        return string.format("法宝伤害提升%d%%，持续%d回合。", Percent(actualBuff), effect.duration or 0)
     elseif effect.type == "deathSave" then
         return string.format("获得一次免死护佑，触发时保留%d%%气血。", Percent(effect.value))
+    end
+    -- 兜底：未知 effect.type，尝试通过 family 判断
+    if item and item.family == "death_save" then
+        return "获得一次免死护佑，触发时保留一定气血。"
     end
     return nil
 end
 
-local function BuildPillDesc(item)
+local function BuildPillDesc(item, state)
     local lines = {}
-    AddLine(lines, BuildPillEffectDesc(item.pillEffect))
+    AddLine(lines, BuildPillEffectDesc(item.pillEffect, state, item))
     if #lines == 0 then
-        AddLine(lines, string.format("每秒恢复%d气血，持续%d秒。", item.healPerSec or item.value or 0, item.duration or 0))
+        -- fallback: 根据 family 判断丹药类型
+        if item.family == "death_save" then
+            AddLine(lines, "获得一次免死护佑，气血归零时触发。")
+        elseif item.family == "shield" then
+            AddLine(lines, string.format("获得%d护盾，持续%d回合。", item.power or 0, item.duration or 3))
+        elseif item.family == "cleanse" then
+            AddLine(lines, "清除负面状态。")
+        elseif item.family == "attack_buff" then
+            local realm = state and Config.GetRealm(state.realmIndex or 1) or { pillMul = 1.0 }
+            local actualBuff = (item.teamAtkBonus or item.power or 0) * (realm.pillMul or 1.0)
+            AddLine(lines, string.format("法宝伤害提升%d%%，持续%d回合。", Percent(actualBuff), item.duration or 3))
+        else
+            local realm = state and Config.GetRealm(state.realmIndex or 1) or { pillMul = 1.0 }
+            local pillMul = (realm.pillMul or 1.0) * (1 + (state and RogueRewardSystem.GetModifierValue(state, "pillEffectPct") or 0))
+            local actualHeal = math.floor(((item.healPerSec or item.value or item.power or 0)) * pillMul)
+            AddLine(lines, string.format("恢复%d气血。", actualHeal))
+        end
     end
     AddDecomposeLine(lines, item)
     return JoinLines(lines)
@@ -294,28 +325,45 @@ local function FormatTargetCount(count)
     return tostring(count or 1) .. "个"
 end
 
-local function BuildTalismanEffectDesc(effect)
+local function BuildTalismanEffectDesc(effect, state)
     if not effect then return nil end
+    local talismanMul = 1 + (state and RogueRewardSystem.GetModifierValue(state, "talismanEffectPct") or 0)
     local targetText = FormatTargetCount(effect.targetCount)
     if effect.type == "damage" then
-        return string.format("随机对%s目标造成%d伤害。", targetText, effect.value or 0)
+        local actualDmg = math.floor((effect.value or 0) * talismanMul)
+        return string.format("随机对%s目标造成%d伤害。", targetText, actualDmg)
     elseif effect.type == "root" then
         return string.format("随机定身%s目标，持续%d回合。", targetText, effect.turns or 0)
     elseif effect.type == "armorBreak" then
-        return string.format("随机破甲%s目标%d%%，持续%d回合。", targetText, Percent(effect.value), effect.duration or 0)
+        local actualVal = (effect.value or 0) * talismanMul
+        return string.format("随机破甲%s目标%d%%，持续%d回合。", targetText, Percent(actualVal), effect.duration or 0)
     elseif effect.type == "attackDown" then
-        return string.format("随机削弱%s目标攻击%d%%，持续%d回合。", targetText, Percent(effect.value), effect.duration or 0)
+        local actualVal = (effect.value or 0) * talismanMul
+        return string.format("随机削弱%s目标攻击%d%%，持续%d回合。", targetText, Percent(actualVal), effect.duration or 0)
     elseif effect.type == "vulnerable" then
-        return string.format("随机使%s目标受到伤害提升%d%%，持续%d回合。", targetText, Percent(effect.value), effect.duration or 0)
+        local actualVal = (effect.value or 0) * talismanMul
+        return string.format("随机使%s目标受到伤害提升%d%%，持续%d回合。", targetText, Percent(actualVal), effect.duration or 0)
     end
     return nil
 end
 
-local function BuildTalismanDesc(item)
+local function BuildTalismanDesc(item, state)
     local lines = {}
-    AddLine(lines, BuildTalismanEffectDesc(item.talismanEffect))
+    AddLine(lines, BuildTalismanEffectDesc(item.talismanEffect, state))
     if #lines == 0 then
-        AddLine(lines, string.format("随机造成%d伤害。", item.aoeDmg or 0))
+        local talismanMul = 1 + (state and RogueRewardSystem.GetModifierValue(state, "talismanEffectPct") or 0)
+        local actualDmg = math.floor((item.aoeDmg or item.power or 0) * talismanMul)
+        if item.family == "root" then
+            AddLine(lines, string.format("随机定身目标%d回合。", item.controlDuration or 1))
+        elseif item.family == "armor_break" then
+            AddLine(lines, "随机破甲目标。")
+        elseif item.family == "attack_down" then
+            AddLine(lines, "随机削弱目标攻击。")
+        elseif item.family == "vulnerable" then
+            AddLine(lines, "随机使目标易伤。")
+        else
+            AddLine(lines, string.format("随机造成%d伤害。", actualDmg))
+        end
     end
     AddDecomposeLine(lines, item)
     return JoinLines(lines)
@@ -496,9 +544,9 @@ function InfoPanelView:ShowItem(item, context, state)
     elseif item.itemType == Config.ITEM_TYPE.DEFENSE then
         desc = BuildArmorDesc(item)
     elseif item.itemType == Config.ITEM_TYPE.PILL then
-        desc = BuildPillDesc(item)
+        desc = BuildPillDesc(item, state)
     elseif item.itemType == Config.ITEM_TYPE.TALISMAN then
-        desc = BuildTalismanDesc(item)
+        desc = BuildTalismanDesc(item, state)
     end
 
     local label = TYPE_LABELS[item.itemType] or "器"

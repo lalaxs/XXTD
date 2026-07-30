@@ -40,17 +40,34 @@ Config.QUALITY = {
 }
 Config.MAX_QUALITY = #Config.QUALITY
 Config.SKILL_UNLOCK_TIER = 5
-Config.MIN_DROP_QUALITY_BY_MAJOR = { 1, 2, 3, 4, 5, 6, 7, 8, 9 }
 
 function Config.GetDropQualityRange(realmIndex)
     local majorIndex = 1
     if Config.GetRealmMajorIndex then
         majorIndex = Config.GetRealmMajorIndex(realmIndex or 1)
     end
-    local minQuality = Config.MIN_DROP_QUALITY_BY_MAJOR[majorIndex] or 1
-    local maxQuality = math.min(Config.MAX_QUALITY, majorIndex)
-    minQuality = math.min(maxQuality, math.max(1, minQuality))
+    local minQuality = 1
+    if majorIndex >= 7 then
+        minQuality = 3
+    elseif majorIndex >= 5 then
+        minQuality = 2
+    end
+    local maxQuality = math.min(Config.MAX_QUALITY, math.max(minQuality, majorIndex - 2))
     return minQuality, maxQuality
+end
+
+function Config.RollDropQuality(realmIndex, roll)
+    local minQuality, maxQuality = Config.GetDropQualityRange(realmIndex)
+    if maxQuality <= minQuality then return minQuality end
+
+    local cumulativeChance = 0
+    local qualityChances = Config.DROP_RULES.QUALITY_CHANCES or {}
+    for quality = maxQuality, minQuality + 1, -1 do
+        cumulativeChance = cumulativeChance + math.min(1, math.max(0, qualityChances[quality] or 0))
+        if roll < cumulativeChance then return quality end
+    end
+
+    return minQuality
 end
 
 -- ============================================================================
@@ -85,6 +102,16 @@ Config.MONSTER_TIER = {
     BOSS = "头目",
 }
 
+-- 各 tier 相对于境界最高档基础血量的倍率
+-- ELITE(精锐) 作为基准 1.0，对应 ENEMY_HP_TARGET_BY_MAJOR_STAGE 的后期最高值
+-- 普通难度1下，渡劫后期精锐敌人最高约50,000，BOSS可达150,000+（高难度下可突破）
+Config.MONSTER_TIER_HP_MUL = {
+    [Config.MONSTER_TIER.MINION] = 0.50,   -- 小妖：基础值的50%
+    [Config.MONSTER_TIER.NORMAL] = 0.70,   -- 普通：基础值的70%
+    [Config.MONSTER_TIER.ELITE]  = 1.00,   -- 精锐：基础值（锚点）
+    [Config.MONSTER_TIER.BOSS]   = 3.00,   -- 头目/Boss：基础值的3倍
+}
+
 Config.PLAYER_DEBUFFS = {
     ATTACK_DOWN = "attackDown",
     VULNERABLE = "vulnerable",
@@ -93,31 +120,31 @@ Config.PLAYER_DEBUFFS = {
 
 Config.MONSTER_DEFS = {
     { id = "wild_boar", name = "野猪妖", realm = 1, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.NORMAL, hp = 18, atk = 12, defense = 4, critChance = 0.05, critMultiplier = 1.5, exp = 5, tags = { "normal" }, asset = "image/enemy/enemy_ (1).png" },
-    { id = "gray_wolf", name = "灰狼妖", realm = 2, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.NORMAL, hp = 50, atk = 14, defense = 7, critChance = 0.05, critMultiplier = 1.5, exp = 7, tags = { "normal" }, asset = "image/enemy/enemy_ (2).png" },
-    { id = "tree_demon", name = "树妖", realm = 3, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.ELITE, hp = 200, atk = 18, defense = 12, critChance = 0.08, critMultiplier = 1.6, exp = 22, tags = { "elite", "tank" }, asset = "image/enemy/enemy_ (3).png" },
+    { id = "gray_wolf", name = "灰狼妖", realm = 2, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.NORMAL, hp = 50, atk = 14, defense = 7, critChance = 0.05, critMultiplier = 1.5, exp = 4, tags = { "normal" }, asset = "image/enemy/enemy_ (2).png" },
+    { id = "tree_demon", name = "树妖", realm = 3, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.ELITE, hp = 200, atk = 18, defense = 12, critChance = 0.08, critMultiplier = 1.6, exp = 36, tags = { "elite", "tank" }, asset = "image/enemy/enemy_ (3).png" },
     { id = "shell_imp", name = "壳背小妖", realm = 1, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.MINION, hp = 15, atk = 6, defense = 4, critChance = 0.0, critMultiplier = 1.0, exp = 3, tags = { "minion" }, asset = "image/enemy/enemy_ (4).png" },
-    { id = "black_wolf", name = "黑狼妖", realm = 2, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.ELITE, hp = 100, atk = 21, defense = 7, critChance = 0.10, critMultiplier = 1.8, exp = 18, tags = { "elite" }, asset = "image/enemy/enemy_ (5).png" },
-    { id = "green_snake", name = "青蛇妖", realm = 3, monsterType = Config.MONSTER_TYPE.RANGED, tier = Config.MONSTER_TIER.NORMAL, hp = 100, atk = 10, defense = 6, critChance = 0.04, critMultiplier = 1.4, exp = 9, tags = { "ranged", "attack_down" }, attackRange = 3, playerDebuff = { type = Config.PLAYER_DEBUFFS.ATTACK_DOWN, value = 0.15, duration = 2 }, asset = "image/enemy/enemy_ (6).png" },
-    { id = "tiger_boss", name = "虎妖头目", realm = 4, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.BOSS, hp = 600, atk = 55, defense = 21, critChance = 0.20, critMultiplier = 2.0, exp = 60, tags = { "boss" }, asset = "image/enemy/enemy_ (7).png" },
-    { id = "white_fox", name = "白狐妖", realm = 5, monsterType = Config.MONSTER_TYPE.RANGED, tier = Config.MONSTER_TIER.ELITE, hp = 700, atk = 33, defense = 26, critChance = 0.10, critMultiplier = 1.8, exp = 40, tags = { "ranged", "elite" }, attackRange = 3, asset = "image/enemy/enemy_ (8).png" },
-    { id = "white_mage", name = "白袍法师", realm = 7, monsterType = Config.MONSTER_TYPE.RANGED, tier = Config.MONSTER_TIER.ELITE, hp = 1900, atk = 46, defense = 79, critChance = 0.10, critMultiplier = 1.8, exp = 75, tags = { "ranged", "elite", "attack_down" }, attackRange = 3, playerDebuff = { type = Config.PLAYER_DEBUFFS.ATTACK_DOWN, value = 0.20, duration = 3 }, asset = "image/enemy/enemy_ (9).png" },
-    { id = "spear_guard", name = "持枪守卫", realm = 4, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.ELITE, hp = 400, atk = 33, defense = 21, critChance = 0.10, critMultiplier = 1.8, exp = 30, tags = { "normal", "elite" }, asset = "image/enemy/enemy_ (10).png" },
-    { id = "gourd_cultivator", name = "葫芦修士", realm = 3, monsterType = Config.MONSTER_TYPE.RANGED, tier = Config.MONSTER_TIER.NORMAL, hp = 100, atk = 10, defense = 6, critChance = 0.04, critMultiplier = 1.4, exp = 9, tags = { "ranged" }, attackRange = 3, asset = "image/enemy/enemy_ (11).png" },
-    { id = "fox_fire_witch", name = "狐火妖女", realm = 5, monsterType = Config.MONSTER_TYPE.RANGED, tier = Config.MONSTER_TIER.ELITE, hp = 700, atk = 33, defense = 26, critChance = 0.10, critMultiplier = 1.8, exp = 40, tags = { "ranged", "elite", "vulnerable" }, attackRange = 3, playerDebuff = { type = Config.PLAYER_DEBUFFS.VULNERABLE, value = 0.20, duration = 2 }, asset = "image/enemy/enemy_ (12).png" },
-    { id = "lantern_maiden", name = "提灯侍女", realm = 7, monsterType = Config.MONSTER_TYPE.RANGED, tier = Config.MONSTER_TIER.NORMAL, hp = 950, atk = 31, defense = 79, critChance = 0.05, critMultiplier = 1.5, exp = 30, tags = { "ranged", "seal" }, attackRange = 3, playerDebuff = { type = Config.PLAYER_DEBUFFS.SEAL, duration = 1 }, asset = "image/enemy/enemy_ (13).png" },
-    { id = "blade_cultivator", name = "持刀修士", realm = 6, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.NORMAL, hp = 700, atk = 31, defense = 65, critChance = 0.05, critMultiplier = 1.5, exp = 22, tags = { "normal" }, asset = "image/enemy/enemy_ (14).png" },
-    { id = "blue_swordsman", name = "蓝剑修士", realm = 8, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.ELITE, hp = 3000, atk = 63, defense = 197, critChance = 0.10, critMultiplier = 1.8, exp = 112, tags = { "elite" }, asset = "image/enemy/enemy_ (15).png" },
-    { id = "beast_tamer", name = "驯兽师", realm = 6, monsterType = Config.MONSTER_TYPE.RANGED, tier = Config.MONSTER_TIER.NORMAL, hp = 600, atk = 26, defense = 46, critChance = 0.05, critMultiplier = 1.5, exp = 22, tags = { "ranged", "normal" }, attackRange = 3, asset = "image/enemy/enemy_ (16).png" },
-    { id = "black_assassin", name = "黑衣刺客", realm = 8, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.ELITE, hp = 3000, atk = 63, defense = 197, critChance = 0.10, critMultiplier = 1.8, exp = 112, tags = { "elite" }, asset = "image/enemy/enemy_ (17).png" },
-    { id = "purple_cultivator", name = "紫袍修士", realm = 9, monsterType = Config.MONSTER_TYPE.RANGED, tier = Config.MONSTER_TIER.ELITE, hp = 4500, atk = 61, defense = 239, critChance = 0.10, critMultiplier = 1.8, exp = 175, tags = { "ranged", "elite", "seal", "vulnerable" }, attackRange = 3, playerDebuffs = { { type = Config.PLAYER_DEBUFFS.SEAL, duration = 2 }, { type = Config.PLAYER_DEBUFFS.VULNERABLE, value = 0.25, duration = 3 } }, asset = "image/enemy/enemy_ (18).png" },
-    { id = "flame_golem", name = "火焰石人", realm = 6, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.ELITE, hp = 1200, atk = 47, defense = 98, critChance = 0.10, critMultiplier = 1.8, exp = 55, tags = { "elite", "tank" }, asset = "image/enemy/enemy_ (19).png" },
-    { id = "poison_spider", name = "毒蜘蛛", realm = 4, monsterType = Config.MONSTER_TYPE.RANGED, tier = Config.MONSTER_TIER.NORMAL, hp = 200, atk = 19, defense = 15, critChance = 0.05, critMultiplier = 1.5, exp = 12, tags = { "ranged", "normal" }, attackRange = 3, asset = "image/enemy/enemy_ (20).png" },
-    { id = "purple_scorpion", name = "紫蝎妖", realm = 5, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.NORMAL, hp = 380, atk = 26, defense = 37, critChance = 0.05, critMultiplier = 1.5, exp = 16, tags = { "normal" }, asset = "image/enemy/enemy_ (21).png" },
-    { id = "three_headed_snake", name = "三头蛇妖", realm = 7, monsterType = Config.MONSTER_TYPE.RANGED, tier = Config.MONSTER_TIER.ELITE, hp = 1900, atk = 46, defense = 79, critChance = 0.10, critMultiplier = 1.8, exp = 75, tags = { "ranged", "elite" }, attackRange = 3, asset = "image/enemy/enemy_ (22).png" },
-    { id = "ice_snake", name = "冰蛇妖", realm = 8, monsterType = Config.MONSTER_TYPE.RANGED, tier = Config.MONSTER_TIER.NORMAL, hp = 1500, atk = 36, defense = 138, critChance = 0.05, critMultiplier = 1.5, exp = 45, tags = { "ranged", "normal" }, attackRange = 3, asset = "image/enemy/enemy_ (23).png" },
-    { id = "green_turtle", name = "青龟妖", realm = 3, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.ELITE, hp = 200, atk = 18, defense = 12, critChance = 0.08, critMultiplier = 1.6, exp = 22, tags = { "elite", "tank" }, asset = "image/enemy/enemy_ (24).png" },
-    { id = "purple_spike_beast", name = "紫刺妖兽", realm = 7, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.NORMAL, hp = 1100, atk = 36, defense = 113, critChance = 0.05, critMultiplier = 1.5, exp = 30, tags = { "normal" }, asset = "image/enemy/enemy_ (25).png" },
-    { id = "purple_fire_elder", name = "紫火老修", realm = 9, monsterType = Config.MONSTER_TYPE.RANGED, tier = Config.MONSTER_TIER.BOSS, hp = 6800, atk = 102, defense = 239, critChance = 0.20, critMultiplier = 2.0, exp = 350, tags = { "ranged", "boss" }, attackRange = 3, asset = "image/enemy/enemy_ (26).png" },
+    { id = "black_wolf", name = "黑狼妖", realm = 2, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.ELITE, hp = 100, atk = 21, defense = 7, critChance = 0.10, critMultiplier = 1.8, exp = 9, tags = { "elite" }, asset = "image/enemy/enemy_ (5).png" },
+    { id = "green_snake", name = "青蛇妖", realm = 3, monsterType = Config.MONSTER_TYPE.RANGED, tier = Config.MONSTER_TIER.NORMAL, hp = 100, atk = 10, defense = 6, critChance = 0.04, critMultiplier = 1.4, exp = 18, tags = { "ranged", "attack_down" }, attackRange = 3, playerDebuff = { type = Config.PLAYER_DEBUFFS.ATTACK_DOWN, value = 0.15, duration = 2 }, asset = "image/enemy/enemy_ (6).png" },
+    { id = "tiger_boss", name = "虎妖头目", realm = 4, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.BOSS, hp = 600, atk = 55, defense = 21, critChance = 0.20, critMultiplier = 2.0, exp = 65, tags = { "boss" }, asset = "image/enemy/enemy_ (7).png" },
+    { id = "white_fox", name = "白狐妖", realm = 5, monsterType = Config.MONSTER_TYPE.RANGED, tier = Config.MONSTER_TIER.ELITE, hp = 700, atk = 33, defense = 26, critChance = 0.10, critMultiplier = 1.8, exp = 66, tags = { "ranged", "elite" }, attackRange = 3, asset = "image/enemy/enemy_ (8).png" },
+    { id = "white_mage", name = "白袍法师", realm = 7, monsterType = Config.MONSTER_TYPE.RANGED, tier = Config.MONSTER_TIER.ELITE, hp = 1900, atk = 46, defense = 79, critChance = 0.10, critMultiplier = 1.8, exp = 165, tags = { "ranged", "elite", "attack_down" }, attackRange = 3, playerDebuff = { type = Config.PLAYER_DEBUFFS.ATTACK_DOWN, value = 0.20, duration = 3 }, asset = "image/enemy/enemy_ (9).png" },
+    { id = "spear_guard", name = "持枪守卫", realm = 4, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.ELITE, hp = 400, atk = 33, defense = 21, critChance = 0.10, critMultiplier = 1.8, exp = 33, tags = { "normal", "elite" }, asset = "image/enemy/enemy_ (10).png" },
+    { id = "gourd_cultivator", name = "葫芦修士", realm = 3, monsterType = Config.MONSTER_TYPE.RANGED, tier = Config.MONSTER_TIER.NORMAL, hp = 100, atk = 10, defense = 6, critChance = 0.04, critMultiplier = 1.4, exp = 18, tags = { "ranged" }, attackRange = 3, asset = "image/enemy/enemy_ (11).png" },
+    { id = "fox_fire_witch", name = "狐火妖女", realm = 5, monsterType = Config.MONSTER_TYPE.RANGED, tier = Config.MONSTER_TIER.ELITE, hp = 700, atk = 33, defense = 26, critChance = 0.10, critMultiplier = 1.8, exp = 66, tags = { "ranged", "elite", "vulnerable" }, attackRange = 3, playerDebuff = { type = Config.PLAYER_DEBUFFS.VULNERABLE, value = 0.20, duration = 2 }, asset = "image/enemy/enemy_ (12).png" },
+    { id = "lantern_maiden", name = "提灯侍女", realm = 7, monsterType = Config.MONSTER_TYPE.RANGED, tier = Config.MONSTER_TIER.NORMAL, hp = 950, atk = 31, defense = 79, critChance = 0.05, critMultiplier = 1.5, exp = 82, tags = { "ranged", "seal" }, attackRange = 3, playerDebuff = { type = Config.PLAYER_DEBUFFS.SEAL, duration = 1 }, asset = "image/enemy/enemy_ (13).png" },
+    { id = "blade_cultivator", name = "持刀修士", realm = 6, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.NORMAL, hp = 700, atk = 31, defense = 65, critChance = 0.05, critMultiplier = 1.5, exp = 61, tags = { "normal" }, asset = "image/enemy/enemy_ (14).png" },
+    { id = "blue_swordsman", name = "蓝剑修士", realm = 8, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.ELITE, hp = 3000, atk = 63, defense = 197, critChance = 0.10, critMultiplier = 1.8, exp = 233, tags = { "elite" }, asset = "image/enemy/enemy_ (15).png" },
+    { id = "beast_tamer", name = "驯兽师", realm = 6, monsterType = Config.MONSTER_TYPE.RANGED, tier = Config.MONSTER_TIER.NORMAL, hp = 600, atk = 26, defense = 46, critChance = 0.05, critMultiplier = 1.5, exp = 61, tags = { "ranged", "normal" }, attackRange = 3, asset = "image/enemy/enemy_ (16).png" },
+    { id = "black_assassin", name = "黑衣刺客", realm = 8, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.ELITE, hp = 3000, atk = 63, defense = 197, critChance = 0.10, critMultiplier = 1.8, exp = 233, tags = { "elite" }, asset = "image/enemy/enemy_ (17).png" },
+    { id = "purple_cultivator", name = "紫袍修士", realm = 9, monsterType = Config.MONSTER_TYPE.RANGED, tier = Config.MONSTER_TIER.ELITE, hp = 4500, atk = 61, defense = 239, critChance = 0.10, critMultiplier = 1.8, exp = 166, tags = { "ranged", "elite", "seal", "vulnerable" }, attackRange = 3, playerDebuffs = { { type = Config.PLAYER_DEBUFFS.SEAL, duration = 2 }, { type = Config.PLAYER_DEBUFFS.VULNERABLE, value = 0.25, duration = 3 } }, asset = "image/enemy/enemy_ (18).png" },
+    { id = "flame_golem", name = "火焰石人", realm = 6, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.ELITE, hp = 1200, atk = 47, defense = 98, critChance = 0.10, critMultiplier = 1.8, exp = 122, tags = { "elite", "tank" }, asset = "image/enemy/enemy_ (19).png" },
+    { id = "poison_spider", name = "毒蜘蛛", realm = 4, monsterType = Config.MONSTER_TYPE.RANGED, tier = Config.MONSTER_TIER.NORMAL, hp = 200, atk = 19, defense = 15, critChance = 0.05, critMultiplier = 1.5, exp = 16, tags = { "ranged", "normal" }, attackRange = 3, asset = "image/enemy/enemy_ (20).png" },
+    { id = "purple_scorpion", name = "紫蝎妖", realm = 5, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.NORMAL, hp = 380, atk = 26, defense = 37, critChance = 0.05, critMultiplier = 1.5, exp = 33, tags = { "normal" }, asset = "image/enemy/enemy_ (21).png" },
+    { id = "three_headed_snake", name = "三头蛇妖", realm = 7, monsterType = Config.MONSTER_TYPE.RANGED, tier = Config.MONSTER_TIER.ELITE, hp = 1900, atk = 46, defense = 79, critChance = 0.10, critMultiplier = 1.8, exp = 165, tags = { "ranged", "elite" }, attackRange = 3, asset = "image/enemy/enemy_ (22).png" },
+    { id = "ice_snake", name = "冰蛇妖", realm = 8, monsterType = Config.MONSTER_TYPE.RANGED, tier = Config.MONSTER_TIER.NORMAL, hp = 1500, atk = 36, defense = 138, critChance = 0.05, critMultiplier = 1.5, exp = 116, tags = { "ranged", "normal" }, attackRange = 3, asset = "image/enemy/enemy_ (23).png" },
+    { id = "green_turtle", name = "青龟妖", realm = 3, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.ELITE, hp = 200, atk = 18, defense = 12, critChance = 0.08, critMultiplier = 1.6, exp = 36, tags = { "elite", "tank" }, asset = "image/enemy/enemy_ (24).png" },
+    { id = "purple_spike_beast", name = "紫刺妖兽", realm = 7, monsterType = Config.MONSTER_TYPE.MELEE, tier = Config.MONSTER_TIER.NORMAL, hp = 1100, atk = 36, defense = 113, critChance = 0.05, critMultiplier = 1.5, exp = 82, tags = { "normal" }, asset = "image/enemy/enemy_ (25).png" },
+    { id = "purple_fire_elder", name = "紫火老修", realm = 9, monsterType = Config.MONSTER_TYPE.RANGED, tier = Config.MONSTER_TIER.BOSS, hp = 6800, atk = 102, defense = 239, critChance = 0.20, critMultiplier = 2.0, exp = 332, tags = { "ranged", "boss" }, attackRange = 3, asset = "image/enemy/enemy_ (26).png" },
 }
 
 Config.MONSTER_BY_ID = {}
@@ -264,8 +291,20 @@ Config.WAVE_SPAWN = {
     DEFAULT_PITY_INTERVAL = 3,
     CHANCE_GROWTH_PER_TURN = 0.10,
     MAX_SPAWN_CHANCE = 0.90,
-    -- 小境界生命压力：前期 ×1.0、中期 ×1.5、后期 ×2.0，再与难度倍率叠乘。
-    MINOR_HP_GROWTH = 1.00,
+    -- 各境界阶段的精锐(ELITE)敌人基础生命目标值；其他tier敌人按 MONSTER_TIER_HP_MUL 倍率缩放。
+    -- 注意：50,000 是难度1的基准上限值，高难度/肉鸽/每日挑战等倍率可以突破此数值。
+    -- 前期 = 后期最高值 × 0.70，中期 = 后期最高值 × 0.85
+    ENEMY_HP_TARGET_BY_MAJOR_STAGE = {
+        [1] = { 20, 25, 30 },
+        [2] = { 70, 85, 100 },
+        [3] = { 230, 280, 330 },
+        [4] = { 700, 850, 1000 },
+        [5] = { 1550, 1900, 2200 },
+        [6] = { 3350, 4100, 4800 },
+        [7] = { 7350, 8900, 10500 },
+        [8] = { 16100, 19500, 23000 },
+        [9] = { 35000, 42500, 50000 },
+    },
     MINOR_ATK_GROWTH = 0.45,
     MINOR_DEF_GROWTH = 0.55,
     MINOR_EXP_GROWTH = 0.75,
@@ -290,9 +329,6 @@ Config.MONSTER_EXP_EARLY_MAJOR_BONUS = 0.10
 -- 敌人血攻成长只在飞升后继续游戏的无尽模式生效；普通境界内每波敌人数值保持不变。
 Config.WAVE_ENEMY_HP_GROWTH = 0.04
 Config.WAVE_ENEMY_ATK_GROWTH = 0.03
--- 后期玩家武器和技能成长更快，按大境界缓慢提高怪物生命值，避免额外倍率放大境界跳变。
--- 前四个大境界保持基础数值；从化神开始小幅增加，渡劫最高为基础生命的 1.24 倍。
-Config.LATE_GAME_ENEMY_HP_MUL_BY_MAJOR = { 1.00, 1.00, 1.00, 1.00, 1.04, 1.08, 1.12, 1.18, 1.24 }
 Config.REALM_ENEMY_ATK_SCALE = { 1.0, 1.0, 0.55, 0.72, 0.70, 0.68, 0.66, 0.64, 0.62 }
 Config.ENDLESS_WAVE_BUDGET_GROWTH = 0.08
 Config.ENDLESS_WAVE_HP_GROWTH = 0.035
@@ -318,16 +354,17 @@ Config.WAVE_PLANS = {
 -- 掉落与场上奖励（P4.3）
 -- ============================================================================
 Config.DROP_RULES = {
-    QUALITY_WEIGHTS = {
-        { quality = 1, weight = 45 },
-        { quality = 2, weight = 30 },
-        { quality = 3, weight = 18 },
-        { quality = 4, weight = 6 },
-        { quality = 5, weight = 1 },
+    QUALITY_CHANCES = {
+        [2] = 0.10,
+        [3] = 0.07,
+        [4] = 0.05,
+        [5] = 0.03,
+        [6] = 0.02,
+        [7] = 0.01,
     },
     CATEGORY_WEIGHTS = {
-        { category = Config.ITEM_CATEGORY.WEAPON, weight = 65 },
-        { category = Config.ITEM_CATEGORY.ARMOR, weight = 35 },
+        { category = Config.ITEM_CATEGORY.WEAPON, weight = 80 },
+        { category = Config.ITEM_CATEGORY.ARMOR, weight = 20 },
     },
 }
 
@@ -359,13 +396,13 @@ Config.SHOP = {
     BASE_PRICE = 8,
     QUALITY_PRICE = { 8, 16, 30, 50, 80, 125, 190, 280, 400 },
     KILL_COIN_BASE = 2,
-    KILL_COIN_PER_REALM = 2,
-    KILL_COIN_DROP_CHANCE = 0.10,
+    KILL_COIN_PER_REALM = 0,
+    KILL_COIN_DROP_CHANCE = 0.05,
     TIER_MULTIPLIER = {
-        [Config.MONSTER_TIER.MINION] = 0.75,
+        [Config.MONSTER_TIER.MINION] = 1.0,
         [Config.MONSTER_TIER.NORMAL] = 1.0,
-        [Config.MONSTER_TIER.ELITE] = 1.75,
-        [Config.MONSTER_TIER.BOSS] = 3.0,
+        [Config.MONSTER_TIER.ELITE] = 1.5,
+        [Config.MONSTER_TIER.BOSS] = 1.0,
     },
 }
 

@@ -20,15 +20,25 @@ local function GetWaveCount(state)
 end
 
 function LeaderboardService.CalculateFinalScore(state)
-    local baseScore = math.max(0, math.floor(state.score or 0))
+    local rawExp = math.max(0, math.floor(state.score or 0))
     local turnCount = math.max(0, math.floor(state.turn or 0))
     local waveCount = math.max(0, math.floor(GetWaveCount(state)))
     local difficulty = math.max(1, math.floor(state.difficulty or 1))
-    return baseScore, {
+    local realmIndex = math.max(1, math.floor(state.realmIndex or 1))
+    local kills = math.max(0, math.floor(state.totalKills or 0))
+
+    -- 积分公式：境界进度为主，击杀奖励为辅，难度加成
+    -- 飞升成功（渡劫后期=realmIndex 27）约 10,000~15,000 分
+    local realmScore = realmIndex * 350
+    local killScore = math.floor(kills * 0.15)
+    local diffBonus = (difficulty - 1) * 1000
+    local finalScore = realmScore + killScore + diffBonus
+
+    return finalScore, {
         difficulty = difficulty,
         turns = turnCount,
         waves = waveCount,
-        realm = math.max(1, math.floor(state.realmIndex or 1)),
+        realm = realmIndex,
         result = state.isVictory and 1 or 0,
     }
 end

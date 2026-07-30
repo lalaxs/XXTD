@@ -52,6 +52,18 @@ local function Clamp01(value)
     return math.min(1.0, math.max(0.0, value))
 end
 
+local function FormatCompactNumber(value)
+    local n = tonumber(value) or 0
+    if n >= 1000000 then
+        local v = math.floor(n / 100000 + 0.5) / 10
+        return v == math.floor(v) and string.format("%.0fM", v) or string.format("%.1fM", v)
+    elseif n >= 10000 then
+        local v = math.floor(n / 100 + 0.5) / 10
+        return v == math.floor(v) and string.format("%.0fK", v) or string.format("%.1fK", v)
+    end
+    return tostring(math.floor(n + 0.5))
+end
+
 local function FindLiveDamageTarget(state, target)
     if not state or not target or not target.hp or target.hp <= 0 then return nil end
     for _, monster in ipairs(state.monsters or {}) do
@@ -1119,7 +1131,8 @@ function UIController:ShowGameOver(state)
     local reviveButton = self.gameOverPanel:FindById("goReviveButton")
     local restartButton = self.gameOverPanel:FindById("goRestartButton")
     local confirmButton = self.gameOverPanel:FindById("goConfirmButton")
-    local totalKills = math.max(state.totalKills or 0, state.endlessKills or 0)
+    local totalKills = state.totalKills or 0
+    local finalScore = LeaderboardService.CalculateFinalScore(state)
 
     if state.isVictory then
         if title then
@@ -1133,7 +1146,9 @@ function UIController:ShowGameOver(state)
         end
         if s then
             s:SetVisible(true)
-            s:SetText((state.dailyChallenge and "本局分数: " or "积分: ") .. state.score .. "  击杀: " .. tostring(totalKills))
+            local scoreText = (state.dailyChallenge and "本局分数: " or "积分: ")
+                .. FormatCompactNumber(finalScore) .. "  击杀: " .. FormatCompactNumber(totalKills)
+            s:SetText(scoreText)
         end
         if r then
             r:SetVisible(true)
@@ -1190,10 +1205,10 @@ function UIController:ShowGameOver(state)
             local displayScore = abandonedDaily
                 and state.dailyChallengeResult
                 and state.dailyChallengeResult.score
-                or state.score
+                or finalScore
             s:SetText((abandonedDaily and "结算分数: " or "积分: ")
-                .. tostring(displayScore or 0)
-                .. "  击杀: " .. tostring(totalKills))
+                .. FormatCompactNumber(displayScore or 0)
+                .. "  击杀: " .. FormatCompactNumber(totalKills))
         end
         if r then
             r:SetVisible(true)

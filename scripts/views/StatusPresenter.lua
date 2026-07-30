@@ -68,7 +68,7 @@ function StatusPresenter.BuildStatuses(state)
     end
 
     if (state.deathSaveRatio or 0) > 0 then
-        AddStatus(list, "buff", "免死护佑", "气血归零时触发并消耗", nil, "1次")
+        AddStatus(list, "buff", "免死护佑", "气血归零时触发并消耗", nil, Percent(state.deathSaveRatio) .. "%")
     end
 
     local playerDebuffs = state.playerDebuffs or {}

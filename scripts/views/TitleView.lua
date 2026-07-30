@@ -264,6 +264,7 @@ function TitleView.Create(callbacks)
         callbacks = callbacks or {},
         root = nil,
         noticeLabel = nil,
+        titleEntrance = nil,
         titleLogo = nil,
         continueButton = nil,
         startButton = nil,
@@ -298,15 +299,24 @@ function TitleView.Create(callbacks)
     }
 
     self.titleLogo = UI.Panel {
-        width = "78%",
-        maxWidth = 640,
-        aspectRatio = 1472 / 940,
+        width = "100%",
+        height = "100%",
         flexShrink = 0,
         backgroundImage = "image/logo.png",
         backgroundFit = "contain",
         backgroundColor = {0, 0, 0, 0},
         transformOrigin = "center",
         pointerEvents = "none",
+    }
+    self.titleEntrance = UI.Panel {
+        width = "78%",
+        maxWidth = 640,
+        aspectRatio = 1472 / 940,
+        flexShrink = 0,
+        backgroundColor = {0, 0, 0, 0},
+        transformOrigin = "center",
+        pointerEvents = "none",
+        children = { self.titleLogo },
     }
 
     local function HandleStartClick()
@@ -591,7 +601,7 @@ function TitleView.Create(callbacks)
                 alignItems = "center",
                 children = {
                     UI.Panel { width = "100%", height = "17%", flexShrink = 0, pointerEvents = "none" },
-                    self.titleLogo,
+                    self.titleEntrance,
                     UI.Panel { width = "100%", height = "13%", flexShrink = 0, pointerEvents = "none" },
                     mainButtonPanel,
                     UI.Panel { width = "100%", height = "3%", flexShrink = 0, pointerEvents = "none" },
@@ -677,18 +687,19 @@ function TitleView:Show()
     self.noticeLabel:SetText("")
     self.root:SetVisible(true)
 
-    PlayEntrance(self.titleLogo, 0, -42, 0.94, function()
-        self.titleLogo:Animate({
-            keyframes = {
-                [0] = { opacity = 1, scale = 1.0, translateY = 0 },
-                [1] = { opacity = 1, scale = 1.018, translateY = -5 },
-            },
-            duration = 2.4,
-            easing = "easeInOut",
-            loop = true,
-            direction = "alternate",
-        })
-    end)
+    self.titleLogo:StopAnimation()
+    self.titleLogo:SetStyle({ opacity = 1, scale = 1.0, translateY = 0 })
+    self.titleLogo:Animate({
+        keyframes = {
+            [0] = { opacity = 1, scale = 1.0, translateY = 0 },
+            [1] = { opacity = 1, scale = 1.018, translateY = -5 },
+        },
+        duration = 2.4,
+        easing = "easeInOut",
+        loop = true,
+        direction = "alternate",
+    })
+    PlayEntrance(self.titleEntrance, 0, -42, 0.94)
     for index, button in ipairs(self.mainButtons) do
         PlayEntrance(button, 0.55 + (index - 1) * 0.32, 28, 0.93)
     end
@@ -699,6 +710,8 @@ function TitleView:Show()
 end
 
 function TitleView:Hide()
+    self.titleEntrance:StopAnimation()
+    self.titleEntrance:SetStyle({ opacity = 1, scale = 1.0, translateY = 0 })
     self.titleLogo:StopAnimation()
     self.titleLogo:SetStyle({ opacity = 1, scale = 1.0, translateY = 0 })
     for _, button in ipairs(self.mainButtons) do

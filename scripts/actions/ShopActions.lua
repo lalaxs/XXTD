@@ -35,10 +35,10 @@ local function GetRefreshCost(state, shop)
     return math.min(maxPrice, basePrice + refreshCount * priceStep)
 end
 
-local function GetShopMinQuality(state)
-    local minQuality, maxQuality = Config.GetDropQualityRange(state.realmIndex or 1)
-    local shift = math.floor(DailyChallenge.GetEffect(state, "rewardQualityShift", 0))
-    return math.min(maxQuality, math.max(minQuality, minQuality + shift))
+local function GetShopMaxQuality(state)
+    local _, realmQualityCap = Config.GetDropQualityRange(state.realmIndex or 1)
+    local challengeShift = math.floor(DailyChallenge.GetEffect(state, "rewardQualityShift", 0))
+    return math.max(1, realmQualityCap - 3 + challengeShift)
 end
 
 local function EnsureShopInventory(state)
@@ -47,7 +47,7 @@ local function EnsureShopInventory(state)
         state.shopInventory.refreshCost = GetRefreshCost(state, state.shopInventory)
         return state.shopInventory
     end
-    local quality = GetShopMinQuality(state)
+    local quality = GetShopMaxQuality(state)
     state.shopInventory = {
         id = "fixed_shop",
         title = "云游商铺",
@@ -124,11 +124,11 @@ function ShopActions.Refresh(state)
         return { ok = false, message = "金币不足" }
     end
 
-    local minQuality = GetShopMinQuality(state)
+    local maxQuality = GetShopMaxQuality(state)
     state.coins = (state.coins or 0) - price
     shop.refreshCount = math.max(0, math.floor(shop.refreshCount or 0)) + 1
     shop.refreshCost = GetRefreshCost(state, shop)
-    shop.items = FieldRewardService.CreateShopItems(state, minQuality)
+    shop.items = FieldRewardService.CreateShopItems(state, maxQuality)
 
     local message = string.format("商店已刷新，花费%d金币", price)
     VisualEventQueue.PushDropMessage(state, message)
@@ -142,10 +142,10 @@ function ShopActions.RefreshByAd(state)
         return { ok = false, message = "商铺未打开" }
     end
 
-    local minQuality = GetShopMinQuality(state)
+    local maxQuality = GetShopMaxQuality(state)
     shop.refreshCount = math.max(0, math.floor(shop.refreshCount or 0)) + 1
     shop.refreshCost = GetRefreshCost(state, shop)
-    shop.items = FieldRewardService.CreateShopItems(state, minQuality)
+    shop.items = FieldRewardService.CreateShopItems(state, maxQuality)
     local message = "看广告刷新商店成功"
     VisualEventQueue.PushDropMessage(state, message)
     return { ok = true, message = message, refreshCost = shop.refreshCost }

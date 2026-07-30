@@ -136,15 +136,16 @@ local function GetShopItemPrice(item)
     return math.max(1, math.floor(prices[quality] or ((rules.BASE_PRICE or 8) * quality)))
 end
 
-function FieldRewardService.CreateShopItems(state, quality)
-    local finalQuality = ClampRewardQuality(state, quality)
+function FieldRewardService.CreateShopItems(state, maxQuality)
+    local qualityCap = ClampRewardQuality(state, maxQuality)
     local rules = Config.SHOP or {}
     local itemCount = math.max(1, math.floor(rules.ITEM_COUNT or 2))
 
     local items = {}
     for index = 1, itemCount do
         local category = GetShopCategory(state, index)
-        local item = ItemSystem.CreateItemByCategory(state, category, finalQuality)
+        local quality = DailyChallenge.RandomInt(state, 1, qualityCap)
+        local item = ItemSystem.CreateItemByCategory(state, category, quality)
         table.insert(items, {
             item = item,
             price = GetShopItemPrice(item),

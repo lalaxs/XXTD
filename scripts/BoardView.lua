@@ -225,8 +225,17 @@ local function GetPillStatText(item)
         elseif effect.type == "attackBuff" or effect.type == "deathSave" then
             return FormatPercentStat(effect.value or item.power)
         elseif effect.type == "cleanse" then
-            return FormatIntegerStat(effect.cleanseCount or effect.immunityTurns)
+            local count = effect.cleanseCount or 0
+            if count >= 99 then return "全" end
+            return FormatIntegerStat(count)
         end
+    end
+
+    -- 兜底：根据 family 判断
+    if item.family == "death_save" or item.family == "attack_buff" then
+        return FormatPercentStat(item.power or item.teamAtkBonus or 0)
+    elseif item.family == "cleanse" then
+        return "全"
     end
 
     local totalHeal = (item.healPerSec or item.value or item.power or 0) * (item.duration or 1)
@@ -442,10 +451,17 @@ local function AddStatusBars(boardPanel, state, m)
         })
     end
 
-    local realm = Config.GetRealm(state.realmIndex)
-    local requiredExp = realm.expRequired or 1
-    local progress = Clamp01(state.exp / math.max(1, requiredExp))
     local circle = D(m.expCircle, m.scale)
+    local isAscension = state.ascensionMode == true
+    local realm = isAscension and nil or Config.GetRealm(state.realmIndex)
+    local circleText = "飞升"
+    local realmName = "飞升"
+    if not isAscension then
+        local requiredExp = realm.expRequired or 1
+        local progress = Clamp01(state.exp / math.max(1, requiredExp))
+        circleText = tostring(math.floor(progress * 100)) .. "%"
+        realmName = tostring(realm.name)
+    end
     boardPanel:AddChild(UI.Panel {
         position = "absolute",
         left = m.originX + circle.x,
@@ -462,7 +478,7 @@ local function AddStatusBars(boardPanel, state, m)
         pointerEvents = "none",
         children = {
             UI.Label {
-                text = tostring(math.floor(progress * 100)) .. "%",
+                text = circleText,
                 fontSize = math.floor(28 * m.scale),
                 fontColor = {80, 50, 35, 255},
                 fontWeight = "bold",
@@ -484,7 +500,7 @@ local function AddStatusBars(boardPanel, state, m)
         pointerEvents = "none",
         children = {
             UI.Label {
-                text = tostring(realm.name),
+                text = realmName,
                 fontSize = math.floor(24 * m.scale),
                 fontColor = {248, 224, 182, 255},
                 fontWeight = "bold",
